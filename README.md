@@ -1,3 +1,17 @@
+# Installation
+
+Python 3.7, tensorflow 2.12.0 matplotlib
+For tf on linux: https://www.tensorflow.org/install/pip
+
+
+upgrade code to tf2: tf_upgrade_v2 --infile job.py --outfile job_tf2.py 
+Change the KTF import
+```
+# import keras.backend.tensorflow_backend as KTF
+from tensorflow.python.keras import backend as KTF
+```
+
+
 # FEN 
 
 By Jiechuan Jiang and Zongqing Lu
