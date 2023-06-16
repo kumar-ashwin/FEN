@@ -13,6 +13,12 @@ from keras import backend as K
 import copy
 import matplotlib.pyplot as plt
 
+from tensorboard.plugins.hparams import api as hp
+
+# Create a summary writer
+log_dir = "logs/metrics"
+summary_writer = tf.summary.create_file_writer(log_dir)
+
 n_agent=10
 n_resource=3
 resource=[]
@@ -117,6 +123,7 @@ class ValueNetwork():
 		_, loss = self.session.run([self.minimize, self.loss], feed_dict={
 			self.observations: states, self.rollout: discounted_rewards
 		})
+		return loss
 
 
 class PPOPolicyNetwork():
@@ -191,10 +198,20 @@ class PPOPolicyNetwork():
 			self.chosen_actions: chosen_actions,
 			self.old_probabilities: old_probabilities
 		})
+		return loss 
+		
 	def save_w(self,name):
 		self.saver.save(self.session,name+'.ckpt')
 	def restore_w(self,name):
 		self.saver.restore(self.session,name+'.ckpt')
+	
+	def save_model(self, save_path):
+		with self.tf_graph.as_default():
+			self.saver.save(self.session, save_path)
+	
+	def load_model(self, save_path):
+		with self.tf_graph.as_default():
+			self.saver.restore(self.session, save_path)
 
 def discount_rewards(rewards,gamma):
 		running_total = 0
@@ -208,22 +225,18 @@ config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth=True   
 session = tf.compat.v1.Session(config=config)
 KTF.set_session(session)
-T = 50   # Meta decision sampling frequency, as well as learning frequency for the policy networks
+T = 50   # learning frequency for the policy and value networks
 totalTime = 0
 GAMMA = 0.98
 n_episode = 100000
 max_steps = 1000
 i_episode = 0
 n_actions = 5
-n_signal = 4  #Number of policies to have
-render = True
+n_signal = 1  #Number of policies to have
+render = False
 
-#Shared network across all agents, for both the Meta network and the policy networks
-meta_Pi = PPOPolicyNetwork(num_features=8, num_actions=n_signal,layer_size=128,epsilon=0.2,learning_rate=0.0003)
-meta_V = ValueNetwork(num_features=8, hidden_size=128, learning_rate=0.001)
-
-Pi = [] #Policy networks
-V = [] #Value functions (Baselines)
+Pi = [] #Policy network
+V = [] #Value function (Baseline)
 #Make one pair of networks for each type of policy (I presume first one will be the greedy one)
 for i in range(n_signal):
 	Pi.append(PPOPolicyNetwork(num_features=6, num_actions=n_actions,layer_size=256,epsilon=0.2,learning_rate=0.0003))
@@ -239,16 +252,14 @@ while i_episode<n_episode:
 	u = [[] for _ in range(n_agent)]  #Stores historical rewards  for each agent
 	max_u = 0.15
 
+	Pi_loss = [[]]
+	V_loss = [[]]
+
 	ep_actions  = [[] for _ in range(n_agent)]
 	ep_rewards  = [[] for _ in range(n_agent)]
 	ep_states   = [[] for _ in range(n_agent)]
 
-	meta_z  = [[] for _ in range(n_agent)]
-	meta_rewards  = [[] for _ in range(n_agent)]
-	meta_states  = [[] for _ in range(n_agent)]
-
-	signal = [0]*n_agent  #TODO
-	rat = [0.0]*n_agent  #TODO What are these??
+	rat = [0.0]*n_agent  #Ratio of performance to average agent
 
 	score=0  #Central agent score = sum of agent scores
 	steps=0
@@ -270,25 +281,14 @@ while i_episode<n_episode:
 	obs = get_obs(ant,resource,size,speed,n_agent)
 
 	while steps<max_steps:
-		if steps%T==0:
-			# Update meta policy decision for each agent once every T steps
-			for i in range(n_agent):
-				h = copy.deepcopy(obs[i])
-				h.append(rat[i])
-				h.append(utili[i])
-				p_z = meta_Pi.get_dist(np.array([h]))[0]
-				z = np.random.choice(range(n_signal), p=p_z)
-				signal[i]=z
-				meta_z[i].append(to_categorical(z,n_signal))
-				meta_states[i].append(h)
 
 		steps+=1
 		action=[]
 		#For each agent, select the action as per the probability distribution given by the PPOPolicy 
-		# corresponding to the selected Meta policy for agent i -> Pi[signal[i]]
+		# corresponding to the selected Meta policy for agent i -> Pi[0]
 		for i in range(n_agent):
 			h = copy.deepcopy(obs[i])
-			p = Pi[signal[i]].get_dist(np.array([h]))[0]
+			p = Pi[0].get_dist(np.array([h]))[0]
 			action.append(np.random.choice(range(n_actions), p=p))
 			ep_states[i].append(h)
 			ep_actions[i].append(to_categorical(action[i],n_actions))
@@ -304,16 +304,6 @@ while i_episode<n_episode:
 		for i in range(n_agent):
 			u[i].append(rewards[i])
 			u_bar[i] = sum(u[i])/len(u[i])
-		'''
-		avg=copy.deepcopy(u_bar)
-		for j in range(10):
-			for i in range(n_agent):
-				s=0
-				for k in range(3):
-					m=np.random.randint(0,n_agent)
-					s+=avg[m]
-				avg[i]=(avg[i]*0.02+(avg[i]+s)/(3+1)*0.98)+(np.random.rand()-0.5)*0.0001
-		'''
 
 		#Calculate the relative adv/disadv as a ratio for each agent compared to the average agent utility
 		# Really similar to SI!!
@@ -327,37 +317,27 @@ while i_episode<n_episode:
 
 		#Calculate episode rewards based on selected policy
 		for i in range(n_agent):
-			if signal[i]==0:
-				#For policy 0, greedy reward
-				ep_rewards[i].append(rewards[i])
-			else:
-				#For others (the 'fair' policies), compute reward as the meta network's probability of selecting the current policy given the current state
-				# If this is high, means we are in a state where the current policy is good, so we should get a high reward
-				#Input = [agentx, agenty, size, speed, resourcex, resourcey, competetive ratio, average utility]
-				h=copy.deepcopy(obs[i])
-				h.append(rat[i])
-				h.append(utili[i])
-				p_z = meta_Pi.get_dist(np.array([h]))[0]
-				r_p = p_z[signal[i]]
-				ep_rewards[i].append(r_p)
-		
+			ep_rewards[i].append(rewards[i])
+			
 		#Update the policies
 		if steps%T==0:
 			for i in range(n_agent):
-				meta_rewards[i].append(utili[i]/(0.1+abs(rat[i])))  #Store rewards to the meta policy
 				ep_actions[i] = np.array(ep_actions[i])
 				ep_rewards[i] = np.array(ep_rewards[i], dtype=np.float_)
 				ep_states[i] = np.array(ep_states[i])
 
 				#Update Value Function for the current policy
 				targets = discount_rewards(ep_rewards[i],GAMMA)
-				V[signal[i]].update(ep_states[i], targets)
+				v_loss = V[0].update(ep_states[i], targets)
 
 				#Compute the advantages for the current policy and update the policy network
-				vs = V[signal[i]].get(ep_states[i])
+				vs = V[0].get(ep_states[i])
 				ep_advantages = targets - vs
 				ep_advantages = (ep_advantages - np.mean(ep_advantages))/(np.std(ep_advantages)+0.0000000001)
-				Pi[signal[i]].update(ep_states[i], ep_actions[i], ep_advantages)
+				pi_loss = Pi[0].update(ep_states[i], ep_actions[i], ep_advantages)
+
+				Pi_loss[0].append(pi_loss)
+				V_loss[0].append(v_loss)
 			
 			#Reset episode variables
 			ep_actions  = [[] for _ in range(n_agent)]
@@ -379,20 +359,18 @@ while i_episode<n_episode:
 			plt.ion()
 			plt.pause(0.4)
 			plt.close()
-	#At the end of each episode, update the meta policy
-	for i in range(n_agent):
-		if len(meta_rewards[i])==0:
-			continue
-		meta_z[i] = np.array(meta_z[i])
-		meta_rewards[i] = np.array(meta_rewards[i])
-		meta_states[i] = np.array(meta_states[i])
-		meta_V.update(meta_states[i], meta_rewards[i])
-		meta_advantages = meta_rewards[i]-meta_V.get(meta_states[i])
-		meta_Pi.update(meta_states[i], meta_z[i], meta_advantages)
+
 	print(i_episode)
 	print(score/max_steps) #Average reward
 	print(su) #Agent rewards
 	uti = np.array(su)/max_steps
+	
+	with summary_writer.as_default():
+		tf.summary.scalar("Policy_Loss", np.mean(Pi_loss[0]), step=i_episode)
+		tf.summary.scalar("Value_Loss", np.mean(V_loss[0]), step=i_episode)
+		tf.summary.scalar("Utility", score/max_steps, step=i_episode)
+		tf.summary.scalar("Fairness", np.var(uti)/np.mean(uti), step=i_episode)
 
-
-	# TODO: Save the model every few episodes
+	# Save the model every 500 episodes
+	if i_episode%500==0:
+		Pi[0].save_model(f"Models_matthew/PPO_Pi/model_{i_episode}.ckpt")
