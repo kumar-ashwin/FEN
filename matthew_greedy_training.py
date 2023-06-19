@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from tensorboard.plugins.hparams import api as hp
 
 # Create a summary writer
-log_dir = "logs/metrics"
+log_dir = "logs/metrics2"
 summary_writer = tf.summary.create_file_writer(log_dir)
 
 n_agent=10
@@ -213,9 +213,10 @@ class PPOPolicyNetwork():
 		with self.tf_graph.as_default():
 			self.saver.restore(self.session, save_path)
 
-def discount_rewards(rewards,gamma):
-		running_total = 0
+def discount_rewards(rewards,gamma, final_state_value=0.0):
+		running_total = final_state_value
 		discounted = np.zeros_like(rewards)
+		
 		for r in reversed(range(len(rewards))):
 			running_total = running_total *gamma + rewards[r]
 			discounted[r] = running_total
@@ -228,7 +229,7 @@ KTF.set_session(session)
 T = 50   # learning frequency for the policy and value networks
 totalTime = 0
 GAMMA = 0.98
-n_episode = 100000
+n_episode = 20000
 max_steps = 1000
 i_episode = 0
 n_actions = 5
@@ -327,7 +328,9 @@ while i_episode<n_episode:
 				ep_states[i] = np.array(ep_states[i])
 
 				#Update Value Function for the current policy
-				targets = discount_rewards(ep_rewards[i],GAMMA)
+				final_state_value = V[0].get(ep_states[i])[-1]
+				# print("Final_state_value", final_state_value)
+				targets = discount_rewards(ep_rewards[i],GAMMA, final_state_value=final_state_value)
 				v_loss = V[0].update(ep_states[i], targets)
 
 				#Compute the advantages for the current policy and update the policy network
@@ -366,11 +369,11 @@ while i_episode<n_episode:
 	uti = np.array(su)/max_steps
 	
 	with summary_writer.as_default():
-		tf.summary.scalar("Policy_Loss", np.mean(Pi_loss[0]), step=i_episode)
-		tf.summary.scalar("Value_Loss", np.mean(V_loss[0]), step=i_episode)
-		tf.summary.scalar("Utility", score/max_steps, step=i_episode)
-		tf.summary.scalar("Fairness", np.var(uti)/np.mean(uti), step=i_episode)
+		tf.summary.scalar("Policy_Loss", float(np.mean(Pi_loss[0])), step=i_episode)
+		tf.summary.scalar("Value_Loss", float(np.mean(V_loss[0])), step=i_episode)
+		tf.summary.scalar("Utility", float(score/max_steps), step=i_episode)
+		tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
 
 	# Save the model every 500 episodes
-	if i_episode%500==0:
-		Pi[0].save_model(f"Models_matthew/PPO_Pi/model_{i_episode}.ckpt")
+	if i_episode%1000==0:
+		Pi[0].save_model(f"Models_matthew/PPO_Pi_2/model_{i_episode}.ckpt")
