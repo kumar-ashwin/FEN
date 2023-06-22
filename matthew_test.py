@@ -188,15 +188,31 @@ Pi = PPOPolicyNetwork(num_features=6, num_actions=n_actions,layer_size=256,epsil
 Pi.load_model("Models_matthew/PPO_Pi_2/model_11000.ckpt")
 
 
-betas= [0.0,0.1,0.2,0.5,1.0]#, 2, 5, 10]
-betas= [0.0,0.1,0.2,0.4, 0.6, 0.8, 1.0, 2, 4, 6, 8, 10]
+# betas= [0.0,0.1,0.2,0.5,1.0]#, 2, 5, 10]
+# betas= [0.0,0.1,0.2,0.4, 0.6, 0.8, 1.0, 2, 4, 6, 8, 10]
+betas= [4]
 utilities = []
 fairness = []
+social_welfare = []
+CofVar = []
+min_utilities = []
+max_utilities = []
+
+def get_CofVar(utilities):
+	#Function to calculate the Coefficient of Variation
+	mean = np.mean(utilities)
+	std = np.std(utilities)
+	return std/mean
+
 for beta in betas:
 	i_episode = 0
 	iters = []
 	results_fairness = []
 	results_utility = []
+	social_welfare_results = []
+	CofVar_results = []
+	min_utility_results = []
+	max_utility_results = []
 	while i_episode<n_episode:
 		i_episode+=1
 
@@ -249,11 +265,17 @@ for beta in betas:
 				p = np.array(p)
 				pbar = sum(p)/len(p)
 				
-				#mult = rat[i]
+				# mult = rat[i]
 				#Use the total reward
-				mult = (su[i] - np.mean(su))/100
+				mult = max(0,(su[i] - np.mean(su)))/100
 
+				# p = p + beta * (pbar - p) * mult
 				p = p + beta * (pbar - p) * mult
+
+				#Better strategy: Don't go for the resource that worse off people want
+
+
+
 				#Normalize
 				p = p - min(p) + 0.01
 				p = p/sum(p) 
@@ -307,6 +329,10 @@ for beta in betas:
 		#Save the results
 		results_fairness.append(np.var(uti)/np.mean(uti))
 		results_utility.append(score/max_steps)
+		social_welfare_results.append(score)
+		CofVar_results.append(get_CofVar(su))
+		min_utility_results.append(min(su))
+		max_utility_results.append(max(su))
 		
 		# #plotting
 		# plt.plot(iters, results_utility, color = 'green')
@@ -321,14 +347,26 @@ for beta in betas:
 	
 	avg_utility = sum(results_utility)/len(results_utility)
 	avg_fairness = sum(results_fairness)/len(results_fairness)
+	avg_social_welfare = sum(social_welfare_results)/len(social_welfare_results)
+	avg_CofVar = sum(CofVar_results)/len(CofVar_results)
+	avg_min_utility = sum(min_utility_results)/len(min_utility_results)
+	avg_max_utility = sum(max_utility_results)/len(max_utility_results)
 
 	print("Beta: ", beta)
 	print("Average utility: ", avg_utility)
 	print("Average fairness: ", avg_fairness)
+	print("Average social welfare: ", avg_social_welfare)
+	print("Average CofVar: ", avg_CofVar)
+	print("Average min utility: ", avg_min_utility)
+	print("Average max utility: ", avg_max_utility)
 	print()
 
 	utilities.append(avg_utility)
 	fairness.append(avg_fairness)
+	social_welfare.append(avg_social_welfare)
+	CofVar.append(avg_CofVar)
+	min_utilities.append(avg_min_utility)
+	max_utilities.append(avg_max_utility)
 
 	# #plotting
 	plt.plot(utilities, fairness, color = 'green', marker = 'o')
@@ -336,20 +374,31 @@ for beta in betas:
 	plt.pause(0.4)
 	plt.close()
 
-#Save the plot
-plt.plot(utilities, fairness, color = 'green', marker = 'o')
-#Add text to the markers for beta
-for i in range(len(utilities)):
-	plt.text(utilities[i], fairness[i], str(betas[i]))
-plt.title("Tradeoff between fairness and average utility")
-plt.xlabel("Average Utility")
-plt.ylabel("Fairness")
-plt.savefig("matthew_tradeoff.png")
-plt.close()
+# #Save the plot
+# plt.plot(utilities, fairness, color = 'green', marker = 'o')
+# #Add text to the markers for beta
+# for i in range(len(utilities)):
+# 	plt.text(utilities[i], fairness[i], str(betas[i]))
+# plt.title("Tradeoff between fairness and average utility")
+# plt.xlabel("Average Utility")
+# plt.ylabel("Fairness")
+# plt.savefig("matthew_tradeoff.png")
+# plt.close()
 
-#Save the results
-import pandas as pd
-df = pd.DataFrame({'Beta':betas, 'Average Utility':utilities, 'Fairness':fairness})
-df.to_csv("matthew_results.csv", index=False)
+# #Plot social welfare vs min utility
+# plt.plot(social_welfare, min_utilities, color = 'green', marker = 'o')
+# #Add text to the markers for beta
+# for i in range(len(utilities)):
+# 	plt.text(social_welfare[i], min_utilities[i], str(betas[i]))
+# plt.title("Tradeoff between social welfare and min utility")
+# plt.xlabel("Social Welfare")
+# plt.ylabel("Min Utility")
+# plt.savefig("matthew_tradeoff2.png")
+# plt.close()
+
+# #Save the results
+# import pandas as pd
+# df = pd.DataFrame({'Beta':betas, 'Average Utility':utilities, 'Fairness':fairness, 'Social Welfare':social_welfare, 'CofVar':CofVar, 'Min Utility':min_utilities, 'Max Utility':max_utilities})
+# df.to_csv("matthew_results.csv", index=False)
 
 
