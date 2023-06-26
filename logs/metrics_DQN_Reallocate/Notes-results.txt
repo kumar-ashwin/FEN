@@ -1,0 +1,28 @@
+Notes:
+
+TRAP model, On policy DQN
+"Models_matthew/OnPolicyVF_Reallocate/model_15000.ckpt"
+
+Over 20 iterations:
+
+Faiorness is cof of var (lower is better) (variance/mean)
+
+beta = 0
+Average Utility:  1.4119
+Average Fairness:  0.0036810952720255224
+Average Min Utility:  100.9
+
+beta = 2
+Average Utility:  1.4549500000000002
+Average Fairness:  0.0019220038323802912
+Average Min Utility:  112.75
+
+beta = 5
+Average Utility:  1.4032499999999999
+Average Fairness:  0.0010361151301985301
+Average Min Utility:  117.1
+
+beta = 10
+Average Utility:  1.3385500000000001
+Average Fairness:  0.0007201300432036921
+Average Min Utility:  112.95

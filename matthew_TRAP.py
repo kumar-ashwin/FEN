@@ -20,9 +20,17 @@ import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
 
-# Create a summary writer
-log_dir = "logs/metrics_DQN"
-summary_writer = tf.summary.create_file_writer(log_dir)
+# # Use CPU
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+
+training = False
+
+if training:
+	# Create a summary writer
+	log_dir = "logs/metrics_DQN_Reallocate/"
+	summary_writer = tf.summary.create_file_writer(log_dir)
 
 n_agents=10
 n_resources=3
@@ -136,12 +144,21 @@ def step(ant,resource, targets, n_resources,n_agents,size,speed,action):
 			if np.random.rand()>p_move:
 				ant[i][0]+=np.cos(dr)*speed[i]
 				ant[i][1]+=np.sin(dr)*speed[i]
+		if ant[i][0]<0:
+			ant[i][0]=0
+		if ant[i][0]>1:
+			ant[i][0]=1
+		if ant[i][1]<0:
+			ant[i][1]=0
+		if ant[i][1]>1:
+			ant[i][1]=1
 
 	#If any resources were picked up, reset the targets
 	if clear_targets:
-		print("Clearing Targets")
+		# print("Clearing Targets")
 		for i in range(n_agents):
 			targets[i]=None
+
 
 	return ant,resource,size,speed,re
 
@@ -192,6 +209,33 @@ class ValueNetwork():
 		with self.tf_graph.as_default():
 			self.saver.restore(self.session, save_path)
 
+class SimpleValueNetwork():
+	def __init__(self, num_features, discount_factor=0.99):
+		self.num_features = num_features
+		self.discount_factor = discount_factor
+	
+	def get(self, states):
+		#States is a list of lists
+		utils = []
+		for h in states:
+			if h[-3]==-1:
+				utils.append(0)
+			else:
+				disc_value = self.discount_factor**int(h[-1])
+				utils.append(disc_value)
+		if len(utils)==1:
+			return utils[0]
+		return utils
+
+	def update(self, states, discounted_rewards):
+		return 0
+
+	def save_model(self, save_path):
+		pass
+
+	def load_model(self, save_path):
+		pass
+			
 def discount_rewards(rewards,gamma, final_state_value=0.0):
 		running_total = final_state_value
 		discounted = np.zeros_like(rewards)
@@ -211,15 +255,15 @@ GAMMA = 0.99
 n_episode = 20000
 max_steps = 1000
 i_episode = 0
-n_actions = 5
-n_signal = 1  #Number of policies to have
 render = False
 
-# Pi = [] #Policy network
-# V = [] #Value function (Baseline)
-#Make one pair of networks for each type of policy (I presume first one will be the greedy one)
 VF = ValueNetwork(num_features=7, hidden_size=256, learning_rate=0.001)
+if not training:
+	VF.load_model("Models_matthew/OnPolicyVF_Reallocate/model_15000.ckpt")
 
+fairness = []
+utility = []
+mins = []
 while i_episode<n_episode:
 	i_episode+=1
 
@@ -272,14 +316,28 @@ while i_episode<n_episode:
 			ep_states[i].append(h)
 
 			Qvals[i][0] = float(VF.get(np.array([h])))
+			occuped_resources = set([targets[j][0] for j in range(n_agents) if targets[j] is not None])
+
 			if targets[i] is None:
 				#If the agent can pick another action, get Q values for all actions
 				for j in range(n_resources):
-					h = copy.deepcopy(obs[0][i])
-					h[-3] = resource[j][0]
-					h[-2] = resource[j][1]
-					h[-1] = get_distance(ant[i],resource[j])
-					Qvals[i][j+1] = float(VF.get(np.array([h])))
+					if j not in occuped_resources:
+						h = copy.deepcopy(obs[0][i])
+						h[-3] = resource[j][0]
+						h[-2] = resource[j][1]
+						h[-1] = get_distance(ant[i],resource[j])
+						Qvals[i][j+1] = float(VF.get(np.array([h])))
+					
+			# #Fairness post processing
+			beta = 5
+			mult = max(0,(su[i] - np.mean(su)))/1000
+			# mult = (su[i] - np.mean(su))/1000
+			for j in range(len(Qvals[i])):
+				if j==0:
+					Qvals[i][j] = Qvals[i][j] + beta * mult
+				else:
+					Qvals[i][j] = Qvals[i][j] - beta * mult
+		
 		
 		#For each agent, select the action using the central agent given Q values
 		actions = get_assignment(Qvals)
@@ -314,7 +372,7 @@ while i_episode<n_episode:
 			ep_rewards[i].append(rewards[i])
 			
 		#Update the policies
-		if steps%T==0:
+		if steps%T==0 and training:
 			for i in range(n_agents):
 				ep_actions[i] = np.array(ep_actions[i])
 				ep_rewards[i] = np.array(ep_rewards[i], dtype=np.float_)
@@ -339,6 +397,9 @@ while i_episode<n_episode:
 				x = ant[i][0] + size[i] * np.cos(theta)
 				y = ant[i][1] + size[i] * np.sin(theta)
 				plt.plot(x, y)
+				if targets[i] is not None:
+					#plot a line from ant to target
+					plt.plot([ant[i][0],resource[targets[i][0]][0]],[ant[i][1],resource[targets[i][0]][1]], color = 'red')
 			for i in range(n_resources):
 				plt.scatter(resource[i][0], resource[i][1], color = 'green')
 			plt.axis("off")
@@ -354,12 +415,23 @@ while i_episode<n_episode:
 	print(su) #Agent rewards
 	uti = np.array(su)/max_steps
 	print("Fairness",np.var(uti)/np.mean(uti)) #Fairness
-	
-	with summary_writer.as_default():
-		tf.summary.scalar("Value_Loss", float(np.mean(VF_loss[0])), step=i_episode)
-		tf.summary.scalar("Utility", float(score/max_steps), step=i_episode)
-		tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
+
+	fairness.append(np.var(uti)/np.mean(uti))
+	utility.append(np.mean(score/max_steps))
+	mins.append(min(su))
+
+
+	print("Average Utility: ", np.mean(utility))
+	print("Average Fairness: ", np.mean(fairness))
+	print("Average Min Utility: ", np.mean(mins))
+
+	if training:
+		with summary_writer.as_default():
+			tf.summary.scalar("Value_Loss", float(np.mean(VF_loss[0])), step=i_episode)
+			tf.summary.scalar("Utility", float(score/max_steps), step=i_episode)
+			tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
+			tf.summary.scalar("Min_Utility", float(min(su)), step=i_episode)
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
-		VF.save_model(f"Models_matthew/OnPolicyVF/model_{i_episode}.ckpt")
+		VF.save_model(f"Models_matthew/OnPolicyVF_Reallocate/model_{i_episode}.ckpt")
