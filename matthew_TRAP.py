@@ -27,14 +27,16 @@ from matching import *
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-
+greedy = False
 training = True
 reallocate = True
+central_rewards = False
 
 st_time = time.time()
 if training:
 	# Create a summary writer
 	mode = "Reallocate" if reallocate else "Fixed"
+	mode += "Central" if central_rewards else ""
 	log_dir = f"logs/OnPolicyVF/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
@@ -74,7 +76,7 @@ def get_obs(ant, resource, targets, sizes, speeds, n_agents):
 		h.append(sizes[i])
 		h.append(speeds[i])
 
-		# #get numberof agents without a target resource
+		# #get number of agents without a target resource
 		# n = 0
 		# for j in range(n_agents):
 		# 	if targets[j] is None:
@@ -117,8 +119,9 @@ def get_obs(ant, resource, targets, sizes, speeds, n_agents):
 
 	return state
 
-def step(ant,resource, targets, n_resources,n_agents,size,speed,action):
+def step(ant,resource, targets, n_resources, n_agents,size,speed,action):
 	clear_targets = False
+	max_size = 0.25
 	# Actions just decide mapping of agents to resources
 	re=[0]*n_agents  #rewards. If an agent picks up a resource, get reward of 1
 	for i in range(n_agents):
@@ -130,6 +133,7 @@ def step(ant,resource, targets, n_resources,n_agents,size,speed,action):
 		#Move each agent towards its target resource
 		if targets[i] is not None:
 			#Other agents can't pick up the resources if they are claimed
+			#if target is overlapped by the agent, remove it
 			if targets[i][1]<=1:
 				ant[i][0] = resource[targets[i][0]][0]
 				ant[i][1] = resource[targets[i][0]][1]
@@ -137,21 +141,30 @@ def step(ant,resource, targets, n_resources,n_agents,size,speed,action):
 
 				#Reset target resource
 				resource[targets[i][0]]=np.random.rand(2)
-				size[i]=min(size[i]+0.005,0.25)
+				size[i]=min(size[i]+0.005,max_size)
 				# size[i]=min(size[i]+0.05,1.5)
 				speed[i]=0.01+size[i]
 				targets[i]=None
-				# clear_targets = True
+				clear_targets = True
 			else:
 				#Move agent towards target resource. Each step, move 1/time_remaining of the way
 				ant[i][0]+=(resource[targets[i][0]][0]-ant[i][0])/targets[i][1]
 				ant[i][1]+=(resource[targets[i][0]][1]-ant[i][1])/targets[i][1]
 				targets[i][1]-=1
+				if get_distance(ant[i],resource[targets[i][0]])<size[i]:
+					re[i]=1 #Get reward
+					#Reset target resource
+					resource[targets[i][0]]=np.random.rand(2)
+					size[i]=min(size[i]+0.005,max_size)
+					speed[i]=0.01+size[i]
+					targets[i]=None
+					clear_targets = True
+
 		else:
 			#Move in a random direction or stay still
 			p_move = 0.8
 			dr = np.random.rand()*2*np.pi
-			if np.random.rand()>p_move:
+			if np.random.rand()<p_move:
 				ant[i][0]+=np.cos(dr)*speed[i]
 				ant[i][1]+=np.sin(dr)*speed[i]
 		if ant[i][0]<0:
@@ -179,8 +192,6 @@ def compute_best_actions(model, obs, targets, n_agents, n_resources, beta=0.0, e
 	if np.random.rand()<epsilon:
 		Qvals = [[np.random.rand()*min(2-ind, 1)*3 for ind in range(n_resources+1)] for _ in range(n_agents)] #Increase importance of doing nothing
 		# Qvals = [[np.random.rand() for _ in range(n_resources+1)] for _ in range(n_agents)]
-
-	
 	else:
 		#First action is to do nothing. This is the default action.
 		#Action indexing starts at -1. Shift by 1 to get the correct index
@@ -213,10 +224,6 @@ def compute_best_actions(model, obs, targets, n_agents, n_resources, beta=0.0, e
 						Qvals[i][j] = Qvals[i][j] + beta * mult
 					else:
 						Qvals[i][j] = Qvals[i][j] - beta * mult
-	# for i in range(n_agents):
-	# 	print("Agent ",i," Qvals: ",Qvals[i])
-		
-	# exit()
 	#For each agent, select the action using the central agent given Q values
 	actions = get_assignment(Qvals)
 	return actions
@@ -242,15 +249,19 @@ n_episode = 20000
 max_steps = 1000
 i_episode = 0
 render = False
-epsilon = 0.9
-min_epsilon = 0.001
+
+epsilon = 0.5
+min_epsilon = 0.01
+if greedy:
+	epsilon = 0.00
+	min_epsilon = 0.00
 epsilon_decay = 0.99
 ep_epsilon = epsilon
 
 obs = get_obs(ant,resource, targets,size,speed,n_agents)
 num_features = len(obs[0][0])
 # VF = ValueNetwork(num_features=34, hidden_size=256, learning_rate=0.001)
-VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
+VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.000003)
 if not training:
 	VF.load_model("Models_matthew/OnPolicyVF_Reallocate/model_15000.ckpt")
 
@@ -264,7 +275,7 @@ def simple_score(state):
 		return 100
 	else:
 		return state[-1]
-	
+
 # VF=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 
 fairness = []
@@ -283,6 +294,7 @@ while i_episode<n_episode:
 	VF_loss = []
 
 	ep_rewards  = [[] for _ in range(n_agents)]
+	ep_central_rewards = []
 	ep_states   = [[] for _ in range(n_agents)]
 
 	rat = [0.0]*n_agents  #Ratio of performance to average agent
@@ -329,6 +341,7 @@ while i_episode<n_episode:
 		
 		su+=np.array(rewards)
 		score += sum(rewards)
+		ep_central_rewards.append(sum(rewards))
 		obs = get_obs(ant,resource, targets, size,speed,n_agents)
 
 		#For fairness, capture the average utility of each agent over the history
@@ -361,11 +374,12 @@ while i_episode<n_episode:
 
 				#Update Value Function for the current policy
 				final_state_value = VF.get(ep_states[i])[-1]
-				# print("Final_state_value", final_state_value)
-				td_targets = discount_rewards(ep_rewards[i],GAMMA, final_state_value=final_state_value)
+				if central_rewards:
+					td_targets = discount_rewards(ep_central_rewards, GAMMA, final_state_value=final_state_value)
+				else:
+					td_targets = discount_rewards(ep_rewards[i], GAMMA, final_state_value=final_state_value)
 				td_targets_all.extend(td_targets)
-				# v_loss = VF.update(ep_states[i], td_targets)
-				# VF_loss.append(v_loss)
+				
 			#Shuffle the states and targets
 			states_all = np.array(states_all)
 			td_targets_all = np.array(td_targets_all)
@@ -400,7 +414,7 @@ while i_episode<n_episode:
 			plt.xlim(0 , 1)
 			plt.ylim(0 , 1)
 			plt.ion()
-			plt.pause(0.4)
+			plt.pause(0.1)
 			plt.close()
 
 	print(i_episode)
@@ -409,7 +423,8 @@ while i_episode<n_episode:
 	uti = np.array(su)/max_steps
 	print("Fairness",np.var(uti)/np.mean(uti)) #Fairness
 	print('epsilon', ep_epsilon)
-	print("VF learening rate", VF.grad_optimizer._lr)
+	if training:
+		print("VF learning rate", VF.grad_optimizer._lr)
 
 	fairness.append(np.var(uti)/np.mean(uti))
 	utility.append(np.mean(score/max_steps))
@@ -430,4 +445,5 @@ while i_episode<n_episode:
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
 		mode = "Reallocate" if reallocate else "Fixed"
+		mode += "Central" if central_rewards else ""
 		VF.save_model(f"Models_matthew/OnPolicyVF/{mode}/{st_time}/model_{i_episode}.ckpt")
