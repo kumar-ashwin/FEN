@@ -30,10 +30,10 @@ from matthew_envt import get_distance, get_obs, step
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-greedy = True
-training = False
-reallocate = False
-central_rewards = False
+greedy = False
+training = True
+reallocate = True
+central_rewards = True
 
 st_time = time.time()
 if training:
@@ -76,7 +76,7 @@ config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth=True   
 session = tf.compat.v1.Session(config=config)
 KTF.set_session(session)
-T = 50   # learning frequency for the policy and value networks
+T = 100   # learning frequency for the policy and value networks
 totalTime = 0
 GAMMA = 0.98
 n_episode = 20000
@@ -84,8 +84,8 @@ max_steps = 1000
 i_episode = 0
 render = False
 
-epsilon = 0.3
-min_epsilon = 0.01
+epsilon = 0.5
+min_epsilon = 0.05
 if greedy:
 	epsilon = 0.00
 	min_epsilon = 0.00
@@ -98,7 +98,8 @@ num_features = len(obs[0][0])
 # VF = ValueNetwork(num_features=34, hidden_size=256, learning_rate=0.001)
 VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
 if not training:
-	VF.load_model("Models_matthew/OnPolicyVF_Reallocate/model_15000.ckpt")
+	# VF.load_model("Models_matthew/OnPolicyVF_Reallocate/model_15000.ckpt")
+	VF.load_model("Models_matthew/OnPolicyVF/ReallocateCentral/1688802638.5038037/model_15000.ckpt")
 
 def simple_score(state):
 	#For sending to the SimpleValueNetwork class
@@ -108,7 +109,7 @@ def simple_score(state):
 	else:
 		return state[-1]
 
-VF=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+# VF=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 
 fairness = []
 utility = []
@@ -179,7 +180,7 @@ while i_episode<n_episode:
 			ep_states[i].append(s_i)
 
 		#Take a step based on the actions, get rewards and updated agents, resources etc.
-		ant,resource,size,speed,rewards=step(ant,resource, targets, n_resources,n_agents,size,speed,actions, max_size=0.2)
+		ant,resource,size,speed,rewards=step(ant,resource, targets, n_resources,n_agents,size,speed,actions, max_size=0.2, reallocate=reallocate)
 		
 		su+=np.array(rewards)
 		score += sum(rewards)
@@ -289,4 +290,4 @@ while i_episode<n_episode:
 	if i_episode%1000==0:
 		mode = "Reallocate" if reallocate else "Fixed"
 		mode += "Central" if central_rewards else ""
-		VF.save_model(f"Models_matthew/OnPolicyVF/{mode}/{st_time}/model_{i_episode}.ckpt")
+		VF.save_model(f"Models_matthew/OnPolicyVF/{mode}/{int(st_time)}/model_{i_episode}.ckpt")

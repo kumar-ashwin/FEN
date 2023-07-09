@@ -30,9 +30,13 @@ def get_assignment(Qvalues):
 def compute_best_actions(model, obs, targets, n_agents, n_resources, su, beta=0.0, epsilon=0.0):
 
 	Qvals = [[-1000000 for _ in range(n_resources+1)] for _ in range(n_agents)]
+	occupied_resources = set([targets[j][0] for j in range(n_agents) if targets[j] is not None])
+
 	#Get a random action with probability epsilon
 	if np.random.rand()<epsilon:
 		Qvals = [[np.random.rand()*min(2-ind, 1)*3 for ind in range(n_resources+1)] for _ in range(n_agents)] #Increase importance of doing nothing
+		#occupied resources cant be taken, so set their Q values to -1000000
+		Qvals = [[-1000000 if j-1 in occupied_resources else Qvals[i][j] for j in range(n_resources+1)] for i in range(n_agents)]
 		# Qvals = [[np.random.rand() for _ in range(n_resources+1)] for _ in range(n_agents)]
 	else:
 		#First action is to do nothing. This is the default action.
@@ -44,12 +48,11 @@ def compute_best_actions(model, obs, targets, n_agents, n_resources, su, beta=0.
 			ant_speed = h[2]
 
 			Qvals[i][0] = float(model.get(np.array([h])))
-			occuped_resources = set([targets[j][0] for j in range(n_agents) if targets[j] is not None])
 
 			if targets[i] is None:
 				#If the agent can pick another action, get Q values for all actions
 				for j in range(n_resources):
-					if j not in occuped_resources:
+					if j not in occupied_resources:
 						h = copy.deepcopy(obs[0][i])
 						h[-3] = resource[j][0]
 						h[-2] = resource[j][1]
