@@ -1,7 +1,7 @@
-Validation Utility: 2.70242
-Validation Fairness: 0.024958199194893917
-Validation Min Utility: 125.88
-Episode: 400
+Validation Utility: 2.72886
+Validation Fairness: 0.01466301331792173
+Validation Min Utility: 161.82
+Episode: 1200
 Epsilon: 0.05
 Simple Obs: True
 Reallocate: True

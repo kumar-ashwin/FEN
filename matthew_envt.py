@@ -17,7 +17,7 @@ class MatthewEnvt:
 		self.min_size = min_size
 		self.size_update = size_update
 		self.base_speed = base_speed
-		# self.ant, self.resource, self.targets, self.size, self.speed, self.su = self.reset()
+
 		self.reset()
 
 		self.reallocate = reallocate
@@ -47,7 +47,13 @@ class MatthewEnvt:
 		self.targets = targets
 		self.size = size
 		self.speed = speed
+		self.set_speed_from_sizes()
 		self.su = su
+	
+	def set_speed_from_sizes(self):
+		for i in range(self.n_agents):
+			self.speed[i] = self.base_speed + self.size[i]
+			# self.speed[i] = self.base_speed + self.size[i]**3*10
 
 	def step(self, actions):
 		clear_targets = False
@@ -71,7 +77,7 @@ class MatthewEnvt:
 					#Reset target resource
 					self.resource[self.targets[i][0]]=np.random.rand(2)
 					self.size[i]=min(self.size[i]+self.size_update, self.max_size)
-					self.speed[i]=self.base_speed+self.size[i]
+					# self.speed[i]=self.base_speed+self.size[i]
 					self.targets[i]=None
 					clear_targets = True
 				else:
@@ -84,7 +90,7 @@ class MatthewEnvt:
 						#Reset target resource
 						self.resource[self.targets[i][0]]=np.random.rand(2)
 						self.size[i]=min(self.size[i]+self.size_update, self.max_size)
-						self.speed[i]=self.base_speed+self.size[i]
+						# self.speed[i]=self.base_speed+self.size[i]
 						self.targets[i]=None
 						clear_targets = True
 			else:
@@ -104,6 +110,9 @@ class MatthewEnvt:
 				self.ant[i][1]=0
 			if self.ant[i][1]>1:
 				self.ant[i][1]=1
+		
+		#Update speeds
+		self.set_speed_from_sizes()
 
 		# If any resources were picked up, reset the targets
 		if self.reallocate:

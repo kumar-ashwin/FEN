@@ -1,0 +1,9 @@
+Validation Utility: 2.6927
+Validation Fairness: 0.05525762126190731
+Validation Min Utility: 48.2
+Episode: 3200
+Epsilon: 0.05
+Simple Obs: True
+Reallocate: True
+Central Rewards: False
+Learning Beta: 100

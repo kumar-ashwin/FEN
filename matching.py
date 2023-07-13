@@ -27,14 +27,15 @@ def get_assignment(Qvalues):
 				assignment.append(j)
 	return assignment
 
-def compute_best_actions(model, obs, targets, n_agents, n_resources, su, beta=0.0, epsilon=0.0):
+def compute_best_actions(model, obs, targets, n_agents, n_resources, su, epsilon=0.0, beta=0.0, direction='both'):
 
 	Qvals = [[-1000000 for _ in range(n_resources+1)] for _ in range(n_agents)]
 	occupied_resources = set([targets[j][0] for j in range(n_agents) if targets[j] is not None])
 
 	#Get a random action with probability epsilon
 	if np.random.rand()<epsilon:
-		Qvals = [[np.random.rand()*min(2-ind, 1)*3 for ind in range(n_resources+1)] for _ in range(n_agents)] #Increase importance of doing nothing
+		Qvals = [[np.random.rand()*min(2-ind, 1)*1.5 for ind in range(n_resources+1)] for _ in range(n_agents)] #Increase importance of doing nothing
+		# print("random action")
 		#occupied resources cant be taken, so set their Q values to -1000000
 		Qvals = [[-1000000 if j-1 in occupied_resources else Qvals[i][j] for j in range(n_resources+1)] for i in range(n_agents)]
 		# Qvals = [[np.random.rand() for _ in range(n_resources+1)] for _ in range(n_agents)]
@@ -61,7 +62,12 @@ def compute_best_actions(model, obs, targets, n_agents, n_resources, su, beta=0.
 					
 			#Fairness post processing
 			if beta is not 0.0:
-				mult = max(0,(su[i] - np.mean(su)))/1000
+				# if direction=='both':
+				mult = (su[i] - np.mean(su))/1000
+				if direction=='adv':
+					mult = min(0,(su[i] - np.mean(su)))/1000
+				elif direction=='dis':
+					mult = max(0,(su[i] - np.mean(su)))/1000
 				# mult = (su[i] - np.mean(su))/1000
 				for j in range(len(Qvals[i])):
 					if j==0:
@@ -77,3 +83,18 @@ def compute_best_actions(model, obs, targets, n_agents, n_resources, su, beta=0.
 	actions = [a-1 for a in actions]
 	# print(actions)
 	return actions
+
+def SI_reward(utils, direction='both'):
+	#normalize
+	avg = np.mean(utils)
+	utils = [u/avg for u in utils]
+	#Simple incentive/penalty for fairness
+	if direction=='both':
+		return [np.mean(utils) - utils[i] for i in range(len(utils))]
+	elif direction=='adv':
+		return [min(0, np.mean(utils) - utils[i]) for i in range(len(utils))]
+	elif direction=='dis':
+		return [max(0, np.mean(utils) - utils[i]) for i in range(len(utils))]
+	else:
+		print('Invalid direction')
+		return None

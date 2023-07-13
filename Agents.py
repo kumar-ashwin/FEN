@@ -105,7 +105,93 @@ class ValueNetwork():
 			weights = self.session.run(self.W)
 		return weights
 
+class PPOPolicyNetwork():
+	def __init__(self, num_features, layer_size, num_actions, epsilon=.2,
+				 learning_rate=9e-4):
+		self.tf_graph = tf.Graph()
 
+		with self.tf_graph.as_default():
+			self.session = tf.compat.v1.Session()
+
+			self.observations = tf.compat.v1.placeholder(shape=[None, num_features], dtype=tf.float32)
+			self.W = [
+				tf.compat.v1.get_variable("W1", shape=[num_features, layer_size]),
+				tf.compat.v1.get_variable("W2", shape=[layer_size, layer_size]),
+				tf.compat.v1.get_variable("W3", shape=[layer_size, num_actions])
+			]
+
+			self.saver = tf.compat.v1.train.Saver(self.W,max_to_keep=3000)
+			
+			self.output = tf.nn.relu(tf.matmul(self.observations, self.W[0]))
+			self.output = tf.nn.relu(tf.matmul(self.output, self.W[1]))
+			self.output = tf.nn.softmax(tf.matmul(self.output, self.W[2]))
+
+			self.advantages = tf.compat.v1.placeholder(shape=[None], dtype=tf.float32)
+
+			self.chosen_actions = tf.compat.v1.placeholder(shape=[None, num_actions], dtype=tf.float32)
+			self.old_probabilities = tf.compat.v1.placeholder(shape=[None, num_actions], dtype=tf.float32)
+
+			self.new_responsible_outputs = tf.reduce_sum(input_tensor=self.chosen_actions*self.output, axis=1)
+			self.old_responsible_outputs = tf.reduce_sum(input_tensor=self.chosen_actions*self.old_probabilities, axis=1)
+
+			self.ratio = self.new_responsible_outputs/self.old_responsible_outputs
+
+			self.loss = tf.reshape(
+							tf.minimum(
+								tf.multiply(self.ratio, self.advantages), 
+								tf.multiply(tf.clip_by_value(self.ratio, 1-epsilon, 1+epsilon), self.advantages)),
+							[-1]
+						) - 0.03*self.new_responsible_outputs*tf.math.log(self.new_responsible_outputs + 1e-10)
+			self.loss = -tf.reduce_mean(input_tensor=self.loss)
+
+			self.W0_grad = tf.compat.v1.placeholder(dtype=tf.float32)
+			self.W1_grad = tf.compat.v1.placeholder(dtype=tf.float32)
+			self.W2_grad = tf.compat.v1.placeholder(dtype=tf.float32)
+
+			self.gradient_placeholders = [self.W0_grad, self.W1_grad, self.W2_grad]
+			self.trainable_vars = self.W
+			self.gradients = [(np.zeros(var.get_shape()), var) for var in self.trainable_vars]
+
+			self.optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+			self.get_grad = self.optimizer.compute_gradients(self.loss, self.trainable_vars)
+			self.apply_grad = self.optimizer.apply_gradients(zip(self.gradient_placeholders, self.trainable_vars))
+			init = tf.compat.v1.global_variables_initializer()
+			self.session.run(init)
+
+	def get_dist(self, states):
+		#Distribution of different actions
+		dist = self.session.run(self.output, feed_dict={self.observations: states})
+		return dist
+
+	def update(self, states, chosen_actions, ep_advantages):
+		old_probabilities = self.session.run(self.output, feed_dict={self.observations: states})
+		self.session.run(self.apply_grad, feed_dict={
+			self.W0_grad: self.gradients[0][0],
+			self.W1_grad: self.gradients[1][0],
+			self.W2_grad: self.gradients[2][0],
+
+		})
+		self.gradients, loss = self.session.run([self.get_grad, self.output], feed_dict={
+			self.observations: states,
+			self.advantages: ep_advantages,
+			self.chosen_actions: chosen_actions,
+			self.old_probabilities: old_probabilities
+		})
+		return loss 
+		
+	def save_w(self,name):
+		self.saver.save(self.session,name+'.ckpt')
+	def restore_w(self,name):
+		self.saver.restore(self.session,name+'.ckpt')
+	
+	def save_model(self, save_path):
+		with self.tf_graph.as_default():
+			self.saver.save(self.session, save_path)
+	
+	def load_model(self, save_path):
+		with self.tf_graph.as_default():
+			self.saver.restore(self.session, save_path)
+			
 
 
 #code a replay buffer

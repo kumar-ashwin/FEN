@@ -21,9 +21,8 @@ import matplotlib.pyplot as plt
 from tensorboard.plugins.hparams import api as hp
 
 from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer
-from matching import compute_best_actions
+from matching import compute_best_actions, SI_reward
 from matthew_envt import get_distance, get_obs, step, MatthewEnvt
-
 
 
 # Use CPU
@@ -39,15 +38,23 @@ central_rewards = False
 simple_obs = True
 logging = False
 
+beta = 0
+learning_beta = 0
+
 if central_rewards:
 	print("Central rewards for DQN not implemented yet. Exiting")
 	exit()
 
+mode = "Reallocate" if reallocate else "Fixed"
+mode += "Central" if central_rewards else ""
+mode += "Simple" if simple_obs else "Complex"
+mode += "_penalty"
+mode += "_SqSpeed"
+mode += f"/{learning_beta}"
+
 st_time = time.time()
 if training:
 	# Create a summary writer
-	mode = "Reallocate" if reallocate else "Fixed"
-	mode += "Central" if central_rewards else ""
 	log_dir = f"logs/DQN/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
@@ -55,7 +62,7 @@ if training:
 n_agents=10
 n_resources=3
 #initialize agents and items. Board size is between 0 and 1
-M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=0.2, reallocate=reallocate, simple_obs=simple_obs)
+M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=0.5, reallocate=reallocate, simple_obs=simple_obs)
 			
 def discount_rewards(rewards,gamma, final_state_value=0.0):
 		running_total = final_state_value
@@ -73,7 +80,7 @@ KTF.set_session(session)
 T = 100   # learning frequency for the policy and value networks
 totalTime = 0
 GAMMA = 0.98
-n_episode = 20000
+n_episode = 5000
 max_steps = 1000
 i_episode = 0
 render = False
@@ -94,7 +101,7 @@ TargetNetwork = ValueNetwork(num_features=num_features, hidden_size=256, learnin
 TargetNetwork.set_weights(VF.get_weights())
 
 if not training:
-	VF.load_model("Models_matthew/DQN/ReallocateCentral/1688802638.5038037/model_15000.ckpt")
+	VF.load_model("Models_matthew/DQN/Reallocate/1688928248/best/best_model.ckpt")
 
 def simple_score(state):
 	#For sending to the SimpleValueNetwork class
@@ -104,7 +111,7 @@ def simple_score(state):
 	else:
 		return state[-1]
 
-# VF=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+VF=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 best_val_utility = 0.0
 fairness = []
 utility = []
@@ -128,7 +135,7 @@ while i_episode<n_episode:
 
 		steps+=1
 		#For each agent, select the action using the central agent
-		actions = compute_best_actions(VF, obs, M.targets, n_agents, n_resources, M.su, beta=0.0, epsilon=ep_epsilon)
+		actions = compute_best_actions(VF, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)
 		
 		#Add to replay buffer
 		experience =[copy.deepcopy(M.get_state()), copy.deepcopy(actions)]
@@ -157,6 +164,14 @@ while i_episode<n_episode:
 				loc_obs = M_train.get_obs()
 				opt_actions = compute_best_actions(VF, obs, M_train.targets, n_agents, n_resources, M_train.su, beta=0.0, epsilon=0)
 				new_rewards = M_train.step(opt_actions)
+				if central_rewards:
+					new_rewards = [np.mean(new_rewards)]*n_agents
+
+				if learning_beta>0:
+					fair_rewards = SI_reward(M_train.su, direction="adv")
+					print(fair_rewards)
+					new_rewards = new_rewards + learning_beta*fair_rewards
+
 				new_obs = M_train.get_obs()
 
 				#Perform batched updates
@@ -178,7 +193,7 @@ while i_episode<n_episode:
 	print("Fairness",np.var(uti)/np.mean(uti)) #Fairness
 	print('epsilon', ep_epsilon)
 	if training:
-		print("VF learning rate", VF.grad_optimizer._lr)
+		print("VF learning beta", learning_beta)
 
 	fairness.append(np.var(uti)/np.mean(uti))
 	utility.append(np.mean(score/max_steps))
@@ -203,8 +218,6 @@ while i_episode<n_episode:
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
-		mode = "Reallocate" if reallocate else "Fixed"
-		mode += "Central" if central_rewards else ""
 		VF.save_model(f"Models_matthew/DQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
@@ -242,8 +255,6 @@ while i_episode<n_episode:
 		if np.mean(val_utility)>best_val_utility:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
-			mode = "Reallocate" if reallocate else "Fixed"
-			mode += "Central" if central_rewards else ""
 			os.makedirs(f"Models_matthew/DQN/{mode}/{int(st_time)}/best", exist_ok=True)
 			VF.save_model(f"Models_matthew/DQN/{mode}/{int(st_time)}/best/best_model.ckpt")
 			print("Saved best model")
@@ -258,6 +269,7 @@ while i_episode<n_episode:
 				f.write(f"Simple Obs: {simple_obs}\n")
 				f.write(f"Reallocate: {reallocate}\n")
 				f.write(f"Central Rewards: {central_rewards}\n")
+				f.write(f"Learning Beta: {learning_beta}\n")
 
 	
 
