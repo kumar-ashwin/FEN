@@ -83,18 +83,18 @@ min_epsilon = 0.05
 if greedy:
 	epsilon = 0.00
 	min_epsilon = 0.00
-epsilon_decay = 0.99
+epsilon_decay = 0.995
 ep_epsilon = epsilon
 
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
-VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.001) #TODO: Add num other agents
-TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.001)
+VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003) #TODO: Add num other agents
+TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
 TargetNetwork1.set_weights(VF1.get_weights())
 
-VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.001) #TODO: Add num other agents
-TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.001)
+VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003) #TODO: Add num other agents
+TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
 TargetNetwork2.set_weights(VF1.get_weights())
 
 
@@ -115,7 +115,8 @@ mins = []
 while i_episode<n_episode:
 	i_episode+=1
 
-	VF_loss = []
+	VF1_loss = []
+	VF2_loss = []
 
 	score=0  #Central agent score = sum of agent scores
 	steps=0
@@ -127,11 +128,11 @@ while i_episode<n_episode:
 	if ep_epsilon<min_epsilon:
 		ep_epsilon = min_epsilon
 
+	selected_VF_id = random.randint(0,1)
 	while steps<max_steps:
 
 		steps+=1
 		#For each agent, select the action using the central agent
-		selected_VF_id = random.randint(0,1)
 		if selected_VF_id==0:
 			actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)
 		else:
@@ -147,7 +148,7 @@ while i_episode<n_episode:
 					
 		#Add to replay buffer
 		#Experience stores - [(s,a), r(s,a,s'), s']
-		experience =copy.deepcopy([pd_states, rewards, M.get_state()])
+		experience = copy.deepcopy([pd_states, rewards, M.get_state()])
 		#pick a random buffer to add to
 		if selected_VF_id==0:
 			replayBuffer1.add(experience)
@@ -159,11 +160,17 @@ while i_episode<n_episode:
 			#Update the value function
 			if len(replayBuffer1.buffer) < 100000/n_agents:
 				continue
-			
+
+			#Experience  = s,a,r(s,a,s'), s')
+			#Q(s,a) = R(s,a,s') + \gamma max_a Q(s',a)
+			#For double DQN,
+			#Q1(s,a) = R(s,a,s') + \gamma TargetNetwork2(s',argmax_a TargetNetwork1(s',a))
+			#Q2(s,a) = R(s,a,s') + \gamma TargetNetwork1(s',argmax_a TargetNetwork2(s',a))
+
 			# print("Updating Value Function")
 			M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 			#Sample a batch of experiences from the replay buffer
-			num_samples = 64
+			num_samples = 32
 			experiences = replayBuffer1.sample(int(num_samples))
 			experiences2 = replayBuffer2.sample(int(num_samples))
 
@@ -190,21 +197,41 @@ while i_episode<n_episode:
 				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork2.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
 				target_values = target_values.reshape(-1)
 				
-				#Experience  = s,a,r(s,a,s'), s')
-				#Q(s,a) = R(s,a,s') + \gamma max_a Q(s',a)
-				#For double DQN,
-				#Q1(s,a) = R(s,a,s') + \gamma TargetNetwork2(s',argmax_a TargetNetwork1(s',a))
-				#Q2(s,a) = R(s,a,s') + \gamma TargetNetwork1(s',argmax_a TargetNetwork2(s',a))
-
-				
 				loss = VF1.update(states, target_values)
-				VF_loss.append(loss)
+				VF1_loss.append(loss)
+			
+			for experience in experiences2:
+				#Compute best action
+				old_pd_states, old_rewards, new_state = experience
+				M_train.set_state(new_state)
+				succ_obs = M_train.get_obs()
+				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.su, beta=beta, epsilon=0.0)
+				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
+
+				if central_rewards:
+					old_rewards = [np.mean(old_rewards)]*n_agents
+
+				if learning_beta>0:
+					fair_rewards = SI_reward(M_train.su, direction="adv")
+					print(fair_rewards)
+					old_rewards = old_rewards + learning_beta*fair_rewards
+
+				new_obs = M_train.get_obs()
+
+				#Perform batched updates
+				states = np.array([old_pd_states[i] for i in range(n_agents)])
+				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork1.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
+				target_values = target_values.reshape(-1)
+
+				loss = VF2.update(states, target_values)
+				VF2_loss.append(loss)
 		
 		if render:
 			M.render()
 			time.sleep(0.01)
 
 	print(i_episode)
+	print("Selected VF", selected_VF_id)
 	print(score/max_steps) #Average reward
 	print(M.su) #Agent rewards
 	uti = np.array(M.su)/max_steps
@@ -224,8 +251,10 @@ while i_episode<n_episode:
 
 	if training and logging:
 		with summary_writer.as_default():
-			if len(VF_loss)>0:
-				tf.summary.scalar("Value_Loss", float(np.mean(VF_loss)), step=i_episode)
+			if len(VF1_loss)>0:
+				tf.summary.scalar("Value_Loss 1", float(np.mean(VF1_loss)), step=i_episode)
+				tf.summary.scalar("Value_Loss 2", float(np.mean(VF2_loss)), step=i_episode)
+				tf.summary.scalar("Value_Loss", float(np.mean(VF1_loss+VF2_loss)), step=i_episode)
 			tf.summary.scalar("Utility", float(score/max_steps), step=i_episode)
 			tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
 			tf.summary.scalar("Min_Utility", float(min(M.su)), step=i_episode)
@@ -233,21 +262,30 @@ while i_episode<n_episode:
 		#update the target network every 10 episodes
 		if i_episode%10==0:
 			TargetNetwork1.set_weights(VF1.get_weights())
+			TargetNetwork2.set_weights(VF2.get_weights())
+
+			#Copy over the weights to the other network
+			# VF2.set_weights(VF1.get_weights())
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
 		VF1.save_model(f"Models/D3QN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
-	if i_episode%200==0 and training:
+	if i_episode%10==0 and training:
 		print("Validating")
-		
+		mult = 1
+		update = False
+		if i_episode%100==0:
+			mult = 25
+			update = True
+
 		#Run 50 validation episodes with the current policy
 		M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 		val_fairness = []
 		val_utility = []
 		val_mins = []
-		for val_eps in range(50):
+		for val_eps in range(1*mult):
 			print(val_eps, end='\r')
 			M_val.reset()
 			obs = M_val.get_obs()
@@ -271,7 +309,7 @@ while i_episode<n_episode:
 				tf.summary.scalar("Validation_Fairness", float(np.mean(val_fairness)), step=i_episode)
 				tf.summary.scalar("Validation_Min_Utility", float(np.mean(val_mins)), step=i_episode)
 
-		if np.mean(val_utility)>best_val_utility:
+		if  update and np.mean(val_utility)>best_val_utility:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
 			os.makedirs(f"Models/D3QN/{mode}/{int(st_time)}/best", exist_ok=True)

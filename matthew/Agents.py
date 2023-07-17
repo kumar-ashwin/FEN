@@ -62,7 +62,9 @@ class ValueNetwork():
 			self.output = tf.reshape(tf.matmul(self.layer_2, self.W[2]), [-1])
 
 			self.rollout = tf.compat.v1.placeholder(shape=[None], dtype=tf.float32)
-			self.loss = tf.compat.v1.losses.mean_squared_error(self.output, self.rollout)
+			# self.loss = tf.compat.v1.losses.mean_squared_error(self.output, self.rollout)
+			#Huber loss
+			self.loss = tf.compat.v1.losses.huber_loss(self.output, self.rollout)
 			self.grad_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
 			self.minimize = self.grad_optimizer.minimize(self.loss)
 
