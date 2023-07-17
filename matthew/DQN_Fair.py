@@ -1,6 +1,9 @@
 """
-Using double duelling Q networks with target networks.
+Casting it as a resource allocation problem, each agent gives preference over the resources, and a central decision maker allocates the resources to the agents.
 Size of agent is proportional to speed, eating food increases size and speed.
+Comments and explanations added by Ashwin Kumar (Washington University in St Louis)
+
+Based on a DQN based approach instead of a policy gradient based approach.
 """
 import os, sys, time  
 import numpy as np
@@ -23,14 +26,13 @@ from Environment import MatthewEnvt
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-replayBuffer1 = ReplayBuffer(1000000)
-replayBuffer2 = ReplayBuffer(1000000)
+replayBuffer = ReplayBuffer(250000)
 
 greedy = False
 training = True
 reallocate = False
 central_rewards = False
-simple_obs = True
+simple_obs = False
 logging = True
 
 beta = 0
@@ -48,7 +50,7 @@ mode += f"/{learning_beta}"
 st_time = time.time()
 if training and logging:
 	# Create a summary writer
-	log_dir = f"logs/D3QN/{mode}/{int(st_time)}/"
+	log_dir = f"logs/DQN_fair/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
 
@@ -89,18 +91,13 @@ ep_epsilon = epsilon
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
-VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003) #TODO: Add num other agents
-TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
-TargetNetwork1.set_weights(VF1.get_weights())
-
-VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003) #TODO: Add num other agents
-TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
-TargetNetwork2.set_weights(VF1.get_weights())
-
+VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
+TargetNetwork = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
+TargetNetwork.set_weights(VF.get_weights())
 
 if not training:
 	model_loc = ""
-	VF1.load_model(model_loc)
+	VF.load_model(model_loc)
 
 def simple_score(state):
 	#For sending to the SimpleValueNetwork class
@@ -115,8 +112,7 @@ mins = []
 while i_episode<n_episode:
 	i_episode+=1
 
-	VF1_loss = []
-	VF2_loss = []
+	VF_loss = []
 
 	score=0  #Central agent score = sum of agent scores
 	steps=0
@@ -128,58 +124,38 @@ while i_episode<n_episode:
 	if ep_epsilon<min_epsilon:
 		ep_epsilon = min_epsilon
 
-	selected_VF_id = random.randint(0,1)
 	while steps<max_steps:
 
 		steps+=1
 		#For each agent, select the action using the central agent
-		if selected_VF_id==0:
-			actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)
-		else:
-			actions = compute_best_actions(VF2, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)
-
+		actions = compute_best_actions(VF, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)		
 		pd_states = M.get_post_decision_states(obs, actions)
-		
 
 		#Take a step based on the actions, get rewards and updated agents, resources etc.
 		rewards = M.step(actions)
 		score += sum(rewards)
 		obs = M.get_obs()
-					
-		#Add to replay buffer
-		#Experience stores - [(s,a), r(s,a,s'), s']
-		experience = copy.deepcopy([pd_states, rewards, M.get_state()])
-		#pick a random buffer to add to
-		if selected_VF_id==0:
-			replayBuffer1.add(experience)
-		else:
-			replayBuffer2.add(experience)
 		
+		#Add to replay buffer
+		experience =copy.deepcopy([pd_states, rewards, M.get_state()])
+		replayBuffer.add(experience)
+					
 		#Update the policies
 		if steps%T==0 and training:
 			#Update the value function
-			if len(replayBuffer1.buffer) < 100000/n_agents:
+			if len(replayBuffer.buffer) < 100000/n_agents:
 				continue
-
-			#Experience  = s,a,r(s,a,s'), s')
-			#Q(s,a) = R(s,a,s') + \gamma max_a Q(s',a)
-			#For double DQN,
-			#Q1(s,a) = R(s,a,s') + \gamma TargetNetwork2(s',argmax_a TargetNetwork1(s',a))
-			#Q2(s,a) = R(s,a,s') + \gamma TargetNetwork1(s',argmax_a TargetNetwork2(s',a))
-
+			
 			# print("Updating Value Function")
 			M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 			#Sample a batch of experiences from the replay buffer
-			num_samples = 32
-			experiences = replayBuffer1.sample(int(num_samples))
-			experiences2 = replayBuffer2.sample(int(num_samples))
+			experiences = replayBuffer.sample(int(64))
 
 			for experience in experiences:
-				#Compute best action
 				old_pd_states, old_rewards, new_state = experience
 				M_train.set_state(new_state)
 				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork1, succ_obs, M_train.targets, n_agents, n_resources, M_train.su, beta=beta, epsilon=0.0)
+				opt_actions = compute_best_actions(VF, succ_obs, M_train.targets, n_agents, n_resources, M_train.su, beta=beta, epsilon=0.0)
 				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
 
 				if central_rewards:
@@ -194,44 +170,17 @@ while i_episode<n_episode:
 
 				#Perform batched updates
 				states = np.array([old_pd_states[i] for i in range(n_agents)])
-				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork2.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
+				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
 				target_values = target_values.reshape(-1)
 				
-				loss = VF1.update(states, target_values)
-				VF1_loss.append(loss)
-			
-			for experience in experiences2:
-				#Compute best action
-				old_pd_states, old_rewards, new_state = experience
-				M_train.set_state(new_state)
-				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.su, beta=beta, epsilon=0.0)
-				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
-
-				if central_rewards:
-					old_rewards = [np.mean(old_rewards)]*n_agents
-
-				if learning_beta>0:
-					fair_rewards = SI_reward(M_train.su, direction="adv")
-					print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*fair_rewards
-
-				new_obs = M_train.get_obs()
-
-				#Perform batched updates
-				states = np.array([old_pd_states[i] for i in range(n_agents)])
-				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork1.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
-				target_values = target_values.reshape(-1)
-
-				loss = VF2.update(states, target_values)
-				VF2_loss.append(loss)
+				loss = VF.update(states, target_values)
+				VF_loss.append(loss)
 		
 		if render:
 			M.render()
 			time.sleep(0.01)
 
 	print(i_episode)
-	print("Selected VF", selected_VF_id)
 	print(score/max_steps) #Average reward
 	print(M.su) #Agent rewards
 	uti = np.array(M.su)/max_steps
@@ -251,25 +200,19 @@ while i_episode<n_episode:
 
 	if training and logging:
 		with summary_writer.as_default():
-			if len(VF1_loss)>0:
-				tf.summary.scalar("Value_Loss 1", float(np.mean(VF1_loss)), step=i_episode)
-				tf.summary.scalar("Value_Loss 2", float(np.mean(VF2_loss)), step=i_episode)
-				tf.summary.scalar("Value_Loss", float(np.mean(VF1_loss+VF2_loss)), step=i_episode)
+			if len(VF_loss)>0:
+				tf.summary.scalar("Value_Loss", float(np.mean(VF_loss)), step=i_episode)
 			tf.summary.scalar("Utility", float(score/max_steps), step=i_episode)
 			tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
 			tf.summary.scalar("Min_Utility", float(min(M.su)), step=i_episode)
 		
-		#update the target network every 10 episodes
-		if i_episode%10==0:
-			TargetNetwork1.set_weights(VF1.get_weights())
-			TargetNetwork2.set_weights(VF2.get_weights())
-
-			#Copy over the weights to the other network
-			# VF2.set_weights(VF1.get_weights())
+		#update the target network every 100 episodes
+		if i_episode%100==0:
+			TargetNetwork.set_weights(VF.get_weights())
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
-		VF1.save_model(f"Models/D3QN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
+		VF.save_model(f"Models/DQN_fair/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
 	if i_episode%10==0 and training:
@@ -279,7 +222,7 @@ while i_episode<n_episode:
 		if i_episode%100==0:
 			mult = 25
 			update = True
-
+		
 		#Run 50 validation episodes with the current policy
 		M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 		val_fairness = []
@@ -291,7 +234,7 @@ while i_episode<n_episode:
 			obs = M_val.get_obs()
 			score = 0
 			for steps in range(max_steps):
-				actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=0)
+				actions = compute_best_actions(VF, obs, M_val.targets, n_agents, n_resources, M_val.su, beta=beta, epsilon=0)
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
@@ -309,14 +252,14 @@ while i_episode<n_episode:
 				tf.summary.scalar("Validation_Fairness", float(np.mean(val_fairness)), step=i_episode)
 				tf.summary.scalar("Validation_Min_Utility", float(np.mean(val_mins)), step=i_episode)
 
-		if  update and np.mean(val_utility)>best_val_utility:
+		if update and np.mean(val_utility)>best_val_utility:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
-			os.makedirs(f"Models/D3QN/{mode}/{int(st_time)}/best", exist_ok=True)
-			VF1.save_model(f"Models/D3QN/{mode}/{int(st_time)}/best/best_model.ckpt")
+			os.makedirs(f"Models/DQN_fair/{mode}/{int(st_time)}/best", exist_ok=True)
+			VF.save_model(f"Models/DQN_fair/{mode}/{int(st_time)}/best/best_model.ckpt")
 			print("Saved best model")
 			#Write the logs to a file
-			with open(f"Models/D3QN/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
+			with open(f"Models/DQN_fair/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
 				f.write(f"Validation Utility: {np.mean(val_utility)}\n")
 				f.write(f"Validation Fairness: {np.mean(val_fairness)}\n")
 				f.write(f"Validation Min Utility: {np.mean(val_mins)}\n")
