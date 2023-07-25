@@ -56,8 +56,10 @@ if training and logging:
 
 n_agents=10
 n_resources=3
-#initialize agents and items. Board size is between 0 and 1
+#initialize environments
 M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 			
 def discount_rewards(rewards,gamma, final_state_value=0.0):
 		running_total = final_state_value
@@ -147,7 +149,7 @@ while i_episode<n_episode:
 				continue
 			
 			# print("Updating Value Function")
-			M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+			M_train.reset()
 			#Sample a batch of experiences from the replay buffer
 			experiences = replayBuffer.sample(int(64))
 
@@ -161,10 +163,10 @@ while i_episode<n_episode:
 				if central_rewards:
 					old_rewards = [np.mean(old_rewards)]*n_agents
 
+				old_rewards = np.array(old_rewards)
 				if learning_beta>0:
 					fair_rewards = SI_reward(M_train.su, direction="adv")
-					print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*fair_rewards
+					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
 
 				new_obs = M_train.get_obs()
 
@@ -207,7 +209,7 @@ while i_episode<n_episode:
 			tf.summary.scalar("Min_Utility", float(min(M.su)), step=i_episode)
 		
 		#update the target network every 100 episodes
-		if i_episode%100==0:
+		if i_episode%20==0:
 			TargetNetwork.set_weights(VF.get_weights())
 
 	# Save the model every 500 episodes
@@ -223,8 +225,7 @@ while i_episode<n_episode:
 			mult = 25
 			update = True
 		
-		#Run 50 validation episodes with the current policy
-		M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+		#Run mult validation episodes with the current policy
 		val_fairness = []
 		val_utility = []
 		val_mins = []
@@ -238,6 +239,8 @@ while i_episode<n_episode:
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
+			if not update:
+				print(M_val.su, score/max_steps)
 			uti = np.array(M_val.su)/max_steps
 			val_fairness.append(np.var(uti)/np.mean(uti))
 			val_utility.append(score/max_steps)

@@ -99,3 +99,12 @@ def SI_reward(utils, direction='both'):
 	else:
 		print('Invalid direction')
 		return None
+
+def variance_penalty(utils):
+	#normalize
+	avg = np.mean(utils)
+	if avg==0:
+		return [0 for i in range(len(utils))]
+	utils = [u/avg for u in utils]
+	#Penalty for variance
+	return [-np.var(utils) for i in range(len(utils))]

@@ -32,7 +32,7 @@ greedy = False
 training = True
 reallocate = False
 central_rewards = False
-simple_obs = True
+simple_obs = False
 logging = True
 
 beta = 0
@@ -164,7 +164,7 @@ while i_episode<n_episode:
 				if learning_beta>0:
 					fair_rewards = SI_reward(M_train.su, direction="adv")
 					print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*fair_rewards
+					print("Not Implemented")
 
 				new_obs = M_train.get_obs()
 
@@ -207,7 +207,7 @@ while i_episode<n_episode:
 			tf.summary.scalar("Min_Utility", float(min(M.su)), step=i_episode)
 		
 		#update the target network every 100 episodes
-		if i_episode%100==0:
+		if i_episode%20==0:
 			TargetNetwork.set_weights(VF.get_weights())
 
 	# Save the model every 500 episodes

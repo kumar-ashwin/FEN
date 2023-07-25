@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from tensorboard.plugins.hparams import api as hp
 
 from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer
-from matching import compute_best_actions, SI_reward
+from matching import compute_best_actions, SI_reward, variance_penalty
 from Environment import MatthewEnvt
 
 
@@ -30,11 +30,13 @@ greedy = False
 training = True
 reallocate = False
 central_rewards = False
-simple_obs = True
+simple_obs = False
 logging = True
 
 beta = 0
-learning_beta = 0
+learning_beta = 0.7
+variance_fairness = True
+
 max_size = 0.5
 # if central_rewards:
 # 	print("Central rewards for DQN not implemented yet. Exiting")
@@ -48,7 +50,7 @@ mode += f"/{learning_beta}"
 st_time = time.time()
 if training and logging:
 	# Create a summary writer
-	log_dir = f"logs/DoubleDQN/{mode}/{int(st_time)}/"
+	log_dir = f"logs/DoubleDQNRetrain/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
 
@@ -56,6 +58,8 @@ n_agents=10
 n_resources=3
 #initialize agents and items. Board size is between 0 and 1
 M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 			
 def discount_rewards(rewards,gamma, final_state_value=0.0):
 		running_total = final_state_value
@@ -89,13 +93,17 @@ ep_epsilon = epsilon
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
-VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003) #TODO: Add num other agents
+model_loc = "Models/DoubleDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
+
+VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.000003) 
+VF1.load_model(model_loc)
 TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
 TargetNetwork1.set_weights(VF1.get_weights())
 
-VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003) #TODO: Add num other agents
+VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.000003) 
+VF2.load_model(model_loc)
 TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
-TargetNetwork2.set_weights(VF1.get_weights())
+TargetNetwork2.set_weights(VF2.get_weights())
 
 
 if not training:
@@ -168,7 +176,7 @@ while i_episode<n_episode:
 			#Q2(s,a) = R(s,a,s') + \gamma TargetNetwork1(s',argmax_a TargetNetwork2(s',a))
 
 			# print("Updating Value Function")
-			M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
+			M_train.reset()
 			#Sample a batch of experiences from the replay buffer
 			num_samples = 32
 			experiences = replayBuffer1.sample(int(num_samples))
@@ -184,11 +192,15 @@ while i_episode<n_episode:
 
 				if central_rewards:
 					old_rewards = [np.mean(old_rewards)]*n_agents
-
+				
+				old_rewards = np.array(old_rewards)
 				if learning_beta>0:
-					fair_rewards = SI_reward(M_train.su, direction="adv")
-					print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*fair_rewards
+					if variance_fairness:
+						fair_rewards = variance_penalty(M_train.su)
+					else:
+						fair_rewards = SI_reward(M_train.su, direction="adv")
+					# print(fair_rewards)
+					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
 
 				new_obs = M_train.get_obs()
 
@@ -210,11 +222,15 @@ while i_episode<n_episode:
 
 				if central_rewards:
 					old_rewards = [np.mean(old_rewards)]*n_agents
-
+				
+				old_rewards = np.array(old_rewards)
 				if learning_beta>0:
-					fair_rewards = SI_reward(M_train.su, direction="adv")
-					print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*fair_rewards
+					if variance_fairness:
+						fair_rewards = variance_penalty(M_train.su)
+					else:
+						fair_rewards = SI_reward(M_train.su, direction="adv")
+					# print(fair_rewards)
+					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
 
 				new_obs = M_train.get_obs()
 
@@ -259,14 +275,14 @@ while i_episode<n_episode:
 			tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
 			tf.summary.scalar("Min_Utility", float(min(M.su)), step=i_episode)
 		
-		#update the target network every 100 episodes
-		if i_episode%100==0:
+		#update the target network every 20 episodes
+		if i_episode%20==0:
 			TargetNetwork1.set_weights(VF1.get_weights())
 			TargetNetwork2.set_weights(VF2.get_weights())
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
-		VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
+		VF1.save_model(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
 	if i_episode%10==0 and training:
@@ -278,7 +294,6 @@ while i_episode<n_episode:
 			update = True
 
 		#Run 50 validation episodes with the current policy
-		M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
 		val_fairness = []
 		val_utility = []
 		val_mins = []
@@ -309,11 +324,11 @@ while i_episode<n_episode:
 		if  update and np.mean(val_utility)>best_val_utility:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
-			os.makedirs(f"Models/DoubleDQN/{mode}/{int(st_time)}/best", exist_ok=True)
-			VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_model.ckpt")
+			os.makedirs(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/best", exist_ok=True)
+			VF1.save_model(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/best/best_model.ckpt")
 			print("Saved best model")
 			#Write the logs to a file
-			with open(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
+			with open(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
 				f.write(f"Validation Utility: {np.mean(val_utility)}\n")
 				f.write(f"Validation Fairness: {np.mean(val_fairness)}\n")
 				f.write(f"Validation Min Utility: {np.mean(val_mins)}\n")
@@ -324,6 +339,8 @@ while i_episode<n_episode:
 				f.write(f"Reallocate: {reallocate}\n")
 				f.write(f"Central Rewards: {central_rewards}\n")
 				f.write(f"Learning Beta: {learning_beta}\n")
+				f_rew = "Variance" if variance_fairness else "SI" 
+				f.write(f"Fairness reward: {f_rew}\n")
 
 	
 
