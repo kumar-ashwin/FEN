@@ -85,6 +85,88 @@ def compute_best_actions(model, obs, targets, n_agents, n_resources, su, epsilon
 	# print(actions)
 	return actions
 
+def compute_best_joint_action(model, envt, obs, targets, n_agents, n_resources, su, epsilon=0.0, beta=0.0, direction='both'):
+	#Enumerate and score all joint actions, then select the best one
+	#For fairness, the modification will be made to each action as we can compute the change in variance because of each.
+
+	occupied_resources = set([targets[j][0] for j in range(n_agents) if targets[j] is not None])
+	# print('******************')
+	# print("Occupied resources", occupied_resources)
+	#Possible actions
+	legal_actions = []
+	#Enumerate all possible actions: Which resource goes to which agent
+	#11P3 = 990 possible actions, max (1 null action)
+	for i in range(n_agents+1):
+		m1 = -1
+		if i<n_agents:
+			if targets[i] is not None: #If the agent already has a target, it cant be assigned another one, this action is invalid
+				continue
+			if 0 in occupied_resources: #If the resource is already occupied, doesn't make a difference. Only consider the null action
+				continue
+			m1 = i
+		for j in range(n_agents+1):
+			if i==j and i!=n_agents:
+				continue
+			m2 = -1
+			if j<n_agents:
+				if targets[j] is not None:
+					continue
+				if 1 in occupied_resources:
+					continue
+				m2 = j
+			for k in range(n_agents+1):
+				if i==k and i!=n_agents:
+					continue
+				if j==k and j!=n_agents:
+					continue
+				m3 = -1
+				if k<n_agents:
+					if targets[k] is not None:
+						continue
+					if 2 in occupied_resources:
+						continue
+					m3 = k
+				
+				legal_actions.append((m1,m2,m3))
+		# #Do the above, but smarter, using permutations
+		# from itertools import permutations
+	# print("num valid actions", len(legal_actions))
+	# print('******************')
+
+	#Get a random action with probability epsilon
+	if np.random.rand()<epsilon:
+		sel_action_ind = np.random.choice(len(legal_actions))
+		sel_action = legal_actions[sel_action_ind]
+	else:
+		Qvals = [-1000000 for _ in range(len(legal_actions))]
+		for act_id, action in enumerate(legal_actions):
+			#Get the Q values for this action
+			agent_actions = [-1 for _ in range(n_agents)]
+			for res, agent in enumerate(action):
+				if agent!=-1:
+					agent_actions[agent] = res
+			pd_state = envt.get_post_decision_central_state(obs, agent_actions)
+			Qvals[act_id] = float(model.get(np.array([pd_state])))
+		
+		#Fairness post processing
+		#TODO
+		# print(legal_actions[-10:])
+		# print(Qvals[-10:])
+		# exit()
+		#Select the best action
+		# pprint.pprint(list(zip(legal_actions, Qvals)))
+		# print(Qvals)
+		sel_action = legal_actions[np.argmax(Qvals)]
+		# print(sel_action)
+		# exit()
+							
+	#Map resource-agent assignment to per agent action
+	actions = [-1 for _ in range(n_agents)]
+	for res, agent in enumerate(sel_action):
+		if agent!=-1:
+			actions[agent] = res
+	return actions
+
 def SI_reward(utils, direction='both'):
 	#normalize
 	avg = np.mean(utils)

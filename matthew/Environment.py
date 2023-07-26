@@ -10,13 +10,26 @@ def get_distance(a,b):
 
 #TODO: Wrap this in a class
 class MatthewEnvt:
-	def __init__(self, n_agents, n_resources, max_size, min_size=0.01, size_update=0.005, base_speed=0.01, reallocate=False, simple_obs=False):
+	def __init__(self, 
+	      n_agents, 
+		  n_resources, 
+		  max_size, 
+		  min_size=0.01, 
+		  size_update=0.005, 
+		  base_speed=0.01, 
+		  reallocate=False, 
+		  simple_obs=False, 
+		  warm_start=0,
+		  past_discount=0.995,
+		  ):
 		self.n_agents = n_agents
 		self.n_resources = n_resources
 		self.max_size = max_size
 		self.min_size = min_size
 		self.size_update = size_update
 		self.base_speed = base_speed
+		self.warm_start = warm_start
+		self.past_discount = past_discount
 
 		self.reset()
 
@@ -50,6 +63,12 @@ class MatthewEnvt:
 		self.speed = speed
 		self.set_speed_from_sizes()
 		self.su = su
+		
+		w = 5 #width of the warm start randomization
+		self.discounted_su = np.array([
+			self.warm_start + np.random.rand()*w - w/2 
+			for _ in range(self.n_agents)])
+		
 	
 	def set_speed_from_sizes(self):
 		for i in range(self.n_agents):
@@ -121,13 +140,15 @@ class MatthewEnvt:
 				for i in range(self.n_agents):
 					self.targets[i]=None
 		self.su+=np.array(re)
+		#Update the discounted su
+		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
 
 		return re
 
 	def get_state(self):
-		return self.ant, self.resource, self.targets, self.size, self.speed, self.su, self.agent_types
+		return self.ant, self.resource, self.targets, self.size, self.speed, self.su, self.agent_types, self.discounted_su
 	def set_state(self, state):
-		self.ant, self.resource, self.targets, self.size, self.speed, self.su, self.agent_types = state
+		self.ant, self.resource, self.targets, self.size, self.speed, self.su, self.agent_types, self.discounted_su = state
 	
 	def get_obs(self):
 		#Gets the state of the environment (Vector of each agent states)
@@ -139,11 +160,13 @@ class MatthewEnvt:
 			h['loc'] = [self.ant[i][0], self.ant[i][1]]
 			h['size'] = self.size[i]
 			h['speed'] = self.speed[i]
+			h['eaten'] = self.su[i]
 			
 			#Get number of agents without a target resource
 			n = sum([1 for j in range(self.n_agents) if self.targets[j] is None])
 			h['n_other_free_agents'] = n
 			h['relative_size'] = self.size[i]/np.mean(self.size) - 1
+			h['relative_su'] = self.discounted_su[i]/np.mean(self.discounted_su) - 1
 
 			#Get info about other agents
 			others = []
@@ -152,7 +175,8 @@ class MatthewEnvt:
 				if j!=i:
 					others.append([
 						self.ant[j][0],self.ant[j][1],
-						self.size[j], 
+						self.speed[j], 
+						self.su[j],
 						get_distance(self.ant[j], self.resource[self.targets[i][0]]) if self.targets[i] is not None else -1,
 						1 if self.targets[j] is None else 0
 						])
@@ -169,7 +193,7 @@ class MatthewEnvt:
 
 			#feats
 			feats = []
-			flist = ['loc','size','speed','n_other_free_agents','relative_size', 'other_agents', 'target_resource']
+			flist = ['loc','size','speed', 'eaten','n_other_free_agents','relative_size', 'relative_su', 'other_agents', 'target_resource']
 			if self.simple_obs:
 				flist = ['loc','size','speed','n_other_free_agents','relative_size', 'target_resource']
 			
@@ -186,6 +210,48 @@ class MatthewEnvt:
 
 		return state
 
+	def get_central_obs(self):
+		#Gets the state of the environment
+		#agent positions, resource positions, size vector, speed vector, number of agents
+		global_state = []
+		agent_states = []
+		for i in range(self.n_agents):
+			h={}
+			h['loc'] = [self.ant[i][0], self.ant[i][1]]
+			h['size'] = self.size[i]
+			h['speed'] = self.speed[i]
+			h['eaten'] = self.su[i]
+			
+			h['relative_size'] = self.size[i]/np.mean(self.size) - 1
+			h['relative_su'] = self.discounted_su[i]/np.mean(self.discounted_su) - 1
+
+			#Get info about target resource
+			if self.targets[i] is not None:
+				t = [self.resource[self.targets[i][0]][0], self.resource[self.targets[i][0]][1], self.targets[i][1]]
+			else:
+				t = [-1,-1,100]
+			h['target_resource'] = t
+
+			#feats
+			feats = []
+			flist = ['loc','size','speed', 'eaten','relative_size', 'relative_su', 'target_resource']
+			if self.simple_obs:
+				flist = ['loc','size','speed','n_other_free_agents','relative_size', 'target_resource']
+			
+			for f in flist:
+				if f=='loc' or f=='other_agents' or f=='target_resource':
+					feats.extend(h[f])
+				else:
+					feats.append(h[f])
+
+			global_state.extend(feats)
+			agent_states.append(feats)
+		
+		for i in range(self.n_resources):
+			global_state.extend(self.resource[i])
+
+		return [global_state, agent_states, copy.deepcopy(self.resource)]
+
 	def get_post_decision_states(self, obs, actions):
 		states = []
 		for i in range(self.n_agents):
@@ -199,7 +265,37 @@ class MatthewEnvt:
 				s_i[-1] = get_distance(ant_loc,self.resource[j])/self.speed[i]
 			states.append(s_i)
 		return states
-				
+
+	def get_post_decision_states(self, obs, actions):
+		states = []
+
+		for i in range(self.n_agents):
+			ant_loc = self.ant[i]
+			s_i = copy.deepcopy(obs[0][i])
+			if actions[i]!=-1:
+				j = actions[i]
+				#apply action
+				s_i[-3] = self.resource[j][0]
+				s_i[-2] = self.resource[j][1]
+				s_i[-1] = get_distance(ant_loc,self.resource[j])/self.speed[i]
+			states.append(s_i)
+		return states
+	
+	def get_post_decision_central_state(self, obs, actions):
+		agents = copy.deepcopy(obs[1])
+		state = []
+		for i,agent in enumerate(agents):
+			if actions[i]!=-1:
+				j = actions[i]
+				#apply action
+				agent[-3] = self.resource[j][0]
+				agent[-2] = self.resource[j][1]
+				agent[-1] = get_distance(agent[0:2],self.resource[j])/self.speed[i]
+			state.extend(agent)
+		for i in range(self.n_resources):
+			state.extend(self.resource[i])
+		return state
+
 	def render(self):
 		for i in range(self.n_agents):
 			theta = np.arange(0, 2*np.pi, 0.01)

@@ -1,6 +1,7 @@
 """
-Using double duelling Q networks with target networks.
+Using double deep Q networks with target networks.
 Size of agent is proportional to speed, eating food increases size and speed.
+Using discounted utilities with warm starts for fairness rewards
 """
 import os, sys, time  
 import numpy as np
@@ -34,7 +35,7 @@ simple_obs = False
 logging = True
 
 beta = 0
-learning_beta = 0.7
+learning_beta = 0.9
 variance_fairness = True
 
 max_size = 0.5
@@ -50,25 +51,19 @@ mode += f"/{learning_beta}"
 st_time = time.time()
 if training and logging:
 	# Create a summary writer
-	log_dir = f"logs/DoubleDQNRetrain/{mode}/{int(st_time)}/"
+	log_dir = f"logs/DoubleDQN/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
 
 n_agents=10
 n_resources=3
+
+warm_start = 50
+past_discount = 0.995
 #initialize agents and items. Board size is between 0 and 1
-M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
-M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
-M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs)
-			
-def discount_rewards(rewards,gamma, final_state_value=0.0):
-		running_total = final_state_value
-		discounted = np.zeros_like(rewards)
-		
-		for r in reversed(range(len(rewards))):
-			running_total = running_total *gamma + rewards[r]
-			discounted[r] = running_total
-		return discounted
+M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount)
+M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount)
+M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount)
 
 config = tf.compat.v1.ConfigProto()  
 config.gpu_options.allow_growth=True   
@@ -93,16 +88,15 @@ ep_epsilon = epsilon
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
-model_loc = "Models/DoubleDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
+# model_loc = "Models/DoubleDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
 
-VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.000003) 
-VF1.load_model(model_loc)
-TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
+learning_rate = 0.00003
+VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate) 
+TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate)
 TargetNetwork1.set_weights(VF1.get_weights())
 
-VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.000003) 
-VF2.load_model(model_loc)
-TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
+VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate) 
+TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate)
 TargetNetwork2.set_weights(VF2.get_weights())
 
 
@@ -115,7 +109,8 @@ def simple_score(state):
 	#Score is just how far the agents are from the resources.
 	return 100 if state[-3]==-1 else state[-1]
 
-# VF=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+# VF1=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+# VF2=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 best_val_utility = 0.0
 fairness = []
 utility = []
@@ -142,9 +137,9 @@ while i_episode<n_episode:
 		steps+=1
 		#For each agent, select the action using the central agent
 		if selected_VF_id==0:
-			actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)
+			actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
 		else:
-			actions = compute_best_actions(VF2, obs, M.targets, n_agents, n_resources, M.su, beta=beta, epsilon=ep_epsilon)
+			actions = compute_best_actions(VF2, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
 
 		pd_states = M.get_post_decision_states(obs, actions)
 		
@@ -153,7 +148,7 @@ while i_episode<n_episode:
 		rewards = M.step(actions)
 		score += sum(rewards)
 		obs = M.get_obs()
-					
+
 		#Add to replay buffer
 		#Experience stores - [(s,a), r(s,a,s'), s']
 		experience = copy.deepcopy([pd_states, rewards, M.get_state()])
@@ -187,7 +182,7 @@ while i_episode<n_episode:
 				old_pd_states, old_rewards, new_state = experience
 				M_train.set_state(new_state)
 				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork1, succ_obs, M_train.targets, n_agents, n_resources, M_train.su, beta=beta, epsilon=0.0)
+				opt_actions = compute_best_actions(TargetNetwork1, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=beta, epsilon=0.0)
 				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
 
 				if central_rewards:
@@ -196,9 +191,9 @@ while i_episode<n_episode:
 				old_rewards = np.array(old_rewards)
 				if learning_beta>0:
 					if variance_fairness:
-						fair_rewards = variance_penalty(M_train.su)
+						fair_rewards = variance_penalty(M_train.discounted_su)
 					else:
-						fair_rewards = SI_reward(M_train.su, direction="adv")
+						fair_rewards = SI_reward(M_train.discounted_su, direction="adv")
 					# print(fair_rewards)
 					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
 
@@ -217,7 +212,7 @@ while i_episode<n_episode:
 				old_pd_states, old_rewards, new_state = experience
 				M_train.set_state(new_state)
 				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.su, beta=beta, epsilon=0.0)
+				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=beta, epsilon=0.0)
 				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
 
 				if central_rewards:
@@ -226,9 +221,9 @@ while i_episode<n_episode:
 				old_rewards = np.array(old_rewards)
 				if learning_beta>0:
 					if variance_fairness:
-						fair_rewards = variance_penalty(M_train.su)
+						fair_rewards = variance_penalty(M_train.discounted_su)
 					else:
-						fair_rewards = SI_reward(M_train.su, direction="adv")
+						fair_rewards = SI_reward(M_train.discounted_su, direction="adv")
 					# print(fair_rewards)
 					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
 
@@ -250,6 +245,7 @@ while i_episode<n_episode:
 	print("Selected VF", selected_VF_id)
 	print(score/max_steps) #Average reward
 	print(M.su) #Agent rewards
+	print(M.discounted_su, '(discounted)')
 	uti = np.array(M.su)/max_steps
 	print("Fairness",np.var(uti)/np.mean(uti)) #Fairness
 	print('epsilon', ep_epsilon)
@@ -272,7 +268,7 @@ while i_episode<n_episode:
 				tf.summary.scalar("Value_Loss 2", float(np.mean(VF2_loss)), step=i_episode)
 				tf.summary.scalar("Value_Loss", float(np.mean(VF1_loss+VF2_loss)), step=i_episode)
 			tf.summary.scalar("Utility", float(score/max_steps), step=i_episode)
-			tf.summary.scalar("Fairness", float(np.var(uti)/np.mean(uti)), step=i_episode)
+			tf.summary.scalar("Fairness", float(np.var(uti)/(np.mean(uti)+0.00001)), step=i_episode)
 			tf.summary.scalar("Min_Utility", float(min(M.su)), step=i_episode)
 		
 		#update the target network every 20 episodes
@@ -282,7 +278,7 @@ while i_episode<n_episode:
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
-		VF1.save_model(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
+		VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
 	if i_episode%10==0 and training:
@@ -303,12 +299,12 @@ while i_episode<n_episode:
 			obs = M_val.get_obs()
 			score = 0
 			for steps in range(max_steps):
-				actions = compute_best_actions(VF1, obs, M_val.targets, n_agents, n_resources, M_val.su, beta=beta, epsilon=0)
+				actions = compute_best_actions(VF1, obs, M_val.targets, n_agents, n_resources, M_val.discounted_su, beta=beta, epsilon=0)
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
 			uti = np.array(M_val.su)/max_steps
-			val_fairness.append(np.var(uti)/np.mean(uti))
+			val_fairness.append(np.var(uti)/(np.mean(uti)+0.00001))
 			val_utility.append(score/max_steps)
 			val_mins.append(min(M_val.su))
 		print("Validation Utility: ", np.mean(val_utility))
@@ -324,11 +320,11 @@ while i_episode<n_episode:
 		if  update and np.mean(val_utility)>best_val_utility:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
-			os.makedirs(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/best", exist_ok=True)
-			VF1.save_model(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/best/best_model.ckpt")
+			os.makedirs(f"Models/DoubleDQN/{mode}/{int(st_time)}/best", exist_ok=True)
+			VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_model.ckpt")
 			print("Saved best model")
 			#Write the logs to a file
-			with open(f"Models/DoubleDQNRetrain/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
+			with open(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
 				f.write(f"Validation Utility: {np.mean(val_utility)}\n")
 				f.write(f"Validation Fairness: {np.mean(val_fairness)}\n")
 				f.write(f"Validation Min Utility: {np.mean(val_mins)}\n")
@@ -339,8 +335,12 @@ while i_episode<n_episode:
 				f.write(f"Reallocate: {reallocate}\n")
 				f.write(f"Central Rewards: {central_rewards}\n")
 				f.write(f"Learning Beta: {learning_beta}\n")
+				f.write(f"Learning Rate: {learning_rate}\n")
 				f_rew = "Variance" if variance_fairness else "SI" 
 				f.write(f"Fairness reward: {f_rew}\n")
+				f.write(f"Warm Start: {warm_start}\n")
+				f.write(f"Past Discount: {past_discount}\n")
+
 
 	
 
