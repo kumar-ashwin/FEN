@@ -1,7 +1,7 @@
 """
 For training split networks - one for predicting utility and one for predicting fairness.
-    In this version:
-        Assume the utility network is trained and fixed.
+	In this version:
+		Assume the utility network is trained and fixed.
 
 Using double deep Q networks with target networks.
 Size of agent is proportional to speed, eating food increases size and speed.
@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
 
-from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer
+from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer, FairValueNetwork
 from matching import compute_best_actions, SI_reward, variance_penalty
 from Environment import MatthewEnvt
 
@@ -38,9 +38,10 @@ central_rewards = False
 simple_obs = False
 logging = True
 
-beta = 0
-learning_beta = 0.9
-variance_fairness = True
+beta = 0.2
+SI_beta = 0
+split_ftype = "variance_diff"
+split_ftype = "split_diff"
 
 max_size = 0.5
 # if central_rewards:
@@ -50,12 +51,14 @@ max_size = 0.5
 mode = "Reallocate" if reallocate else "Fixed"
 mode += "Central" if central_rewards else ""
 mode += "" if simple_obs else "Complex"
-mode += f"/{learning_beta}"
+mode += f"" if split_ftype=="variance_diff" else f"_{split_ftype}"
+mode += f"/{beta}"
+
 
 st_time = time.time()
 if training and logging:
 	# Create a summary writer
-	log_dir = f"logs/DoubleDQN/{mode}/{int(st_time)}/"
+	log_dir = f"logs/SplitDDQN/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
 
@@ -92,29 +95,58 @@ ep_epsilon = epsilon
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
-# model_loc = "Models/DoubleDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
-
+#Load the utility model
+model_loc = "Models/DoubleDQN/FixedComplex/0.0/1690319126/best/best_model.ckpt"
 learning_rate = 0.00003
-VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate) 
-TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate)
-TargetNetwork1.set_weights(VF1.get_weights())
+VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
+VF.load_model(model_loc)
 
-VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate) 
-TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate)
-TargetNetwork2.set_weights(VF2.get_weights())
+fair_model_loc = "Models/SplitDDQN_SI_bug/FixedComplex/0/1690660552/model_4000.ckpt"
+FairVF1 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta)
+FairVF1.load_model(fair_model_loc)
+TargetNetwork1 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta)
+TargetNetwork1.set_weights(FairVF1.get_weights())
+
+FairVF2 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta) 
+FairVF2.load_model(fair_model_loc)
+TargetNetwork2 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta)
+TargetNetwork2.set_weights(FairVF2.get_weights())
 
 
-if not training:
-	model_loc = ""
-	VF1.load_model(model_loc)
+# if not training:
+# 	model_loc = ""
+# 	FairVF1.load_model(model_loc)
 
 def simple_score(state):
 	#For sending to the SimpleValueNetwork class
 	#Score is just how far the agents are from the resources.
+	#TODO: For this case, rewrite this function to make it the SI reward. That should be a decent baseline
 	return 100 if state[-3]==-1 else state[-1]
 
 # VF1=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 # VF2=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+
+def get_fairness_from_su(su_prev, su_post, ftype="variance"):
+	# su_prev and su_post are lists of discounted utilities
+	# ftype is the type of fairness to compute. Currently, only variance is supported
+	if ftype=="variance":
+		return [-np.var(su_post)/n_agents for i in range(n_agents)]
+	elif ftype=="variance_diff":
+		return [-np.var(su_post)/n_agents + np.var(su_prev)/n_agents for i in range(n_agents)]
+	elif ftype=="split_diff":
+		#Each agent gets score based on how much they contributed
+		scores = [0 for i in range(n_agents)]
+		zbar = np.mean(su_prev)
+		z2bar = np.mean(su_post)
+		for i in range(n_agents):
+			z_i = su_prev[i]
+			z_i2 = su_post[i]
+			scores[i] = ((z_i2 -z2bar)**2 - (z_i - zbar)**2)/n_agents   #The exact contribution. Not an estimate.
+		return scores
+	else:
+		print("Fairness type not supported. Exiting")
+		exit()
+
 best_val_utility = 0.0
 fairness = []
 utility = []
@@ -141,21 +173,25 @@ while i_episode<n_episode:
 		steps+=1
 		#For each agent, select the action using the central agent
 		if selected_VF_id==0:
-			actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
+			actions = compute_best_actions(FairVF1, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=SI_beta, epsilon=ep_epsilon)
 		else:
-			actions = compute_best_actions(VF2, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
+			actions = compute_best_actions(FairVF2, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=SI_beta, epsilon=ep_epsilon)
 
 		pd_states = M.get_post_decision_states(obs, actions)
 		
-
+		su_prev = copy.deepcopy(M.discounted_su)
 		#Take a step based on the actions, get rewards and updated agents, resources etc.
 		rewards = M.step(actions)
 		score += sum(rewards)
 		obs = M.get_obs()
+		su_post = copy.deepcopy(M.discounted_su)
+		#TODO: Compute the fairness reward based on the change in variance before and after, and the contribution of each agents' action
+		#TODO: Alternative, simple solution: Fairness reward is just the change in variance to all agents. Learn to predict the current variance = change in variance + successor variance. 
+		f_reward = get_fairness_from_su(su_prev, su_post, ftype=split_ftype)
 
 		#Add to replay buffer
 		#Experience stores - [(s,a), r(s,a,s'), s']
-		experience = copy.deepcopy([pd_states, rewards, M.get_state()])
+		experience = copy.deepcopy([pd_states, f_reward, M.get_state()])
 		#pick a random buffer to add to
 		if selected_VF_id==0:
 			replayBuffer1.add(experience)
@@ -186,29 +222,20 @@ while i_episode<n_episode:
 				old_pd_states, old_rewards, new_state = experience
 				M_train.set_state(new_state)
 				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork1, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=beta, epsilon=0.0)
+				opt_actions = compute_best_actions(TargetNetwork1, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=SI_beta, epsilon=0.0)
 				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
 
 				if central_rewards:
 					old_rewards = [np.mean(old_rewards)]*n_agents
 				
 				old_rewards = np.array(old_rewards)
-				if learning_beta>0:
-					if variance_fairness:
-						fair_rewards = variance_penalty(M_train.discounted_su)
-					else:
-						fair_rewards = SI_reward(M_train.discounted_su, direction="adv")
-					# print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
-
-				new_obs = M_train.get_obs()
 
 				#Perform batched updates
 				states = np.array([old_pd_states[i] for i in range(n_agents)])
 				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork2.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
 				target_values = target_values.reshape(-1)
 				
-				loss = VF1.update(states, target_values)
+				loss = FairVF1.update(states, target_values)
 				VF1_loss.append(loss)
 			
 			for experience in experiences2:
@@ -216,29 +243,20 @@ while i_episode<n_episode:
 				old_pd_states, old_rewards, new_state = experience
 				M_train.set_state(new_state)
 				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=beta, epsilon=0.0)
+				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=SI_beta, epsilon=0.0)
 				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
 
 				if central_rewards:
 					old_rewards = [np.mean(old_rewards)]*n_agents
 				
 				old_rewards = np.array(old_rewards)
-				if learning_beta>0:
-					if variance_fairness:
-						fair_rewards = variance_penalty(M_train.discounted_su)
-					else:
-						fair_rewards = SI_reward(M_train.discounted_su, direction="adv")
-					# print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
-
-				new_obs = M_train.get_obs()
 
 				#Perform batched updates
 				states = np.array([old_pd_states[i] for i in range(n_agents)])
 				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork1.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
 				target_values = target_values.reshape(-1)
 
-				loss = VF2.update(states, target_values)
+				loss = FairVF2.update(states, target_values)
 				VF2_loss.append(loss)
 		
 		if render:
@@ -254,7 +272,7 @@ while i_episode<n_episode:
 	print("Fairness",np.var(uti)/np.mean(uti)) #Fairness
 	print('epsilon', ep_epsilon)
 	if training:
-		print("VF learning beta", learning_beta)
+		print("Split beta", beta)
 
 	fairness.append(np.var(uti)/np.mean(uti))
 	utility.append(np.mean(score/max_steps))
@@ -277,12 +295,12 @@ while i_episode<n_episode:
 		
 		#update the target network every 20 episodes
 		if i_episode%20==0:
-			TargetNetwork1.set_weights(VF1.get_weights())
-			TargetNetwork2.set_weights(VF2.get_weights())
+			TargetNetwork1.set_weights(FairVF1.get_weights())
+			TargetNetwork2.set_weights(FairVF2.get_weights())
 
 	# Save the model every 500 episodes
 	if i_episode%1000==0:
-		VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
+		FairVF1.save_model(f"Models/SplitDDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
 	if i_episode%10==0 and training:
@@ -303,7 +321,7 @@ while i_episode<n_episode:
 			obs = M_val.get_obs()
 			score = 0
 			for steps in range(max_steps):
-				actions = compute_best_actions(VF1, obs, M_val.targets, n_agents, n_resources, M_val.discounted_su, beta=beta, epsilon=0)
+				actions = compute_best_actions(FairVF1, obs, M_val.targets, n_agents, n_resources, M_val.discounted_su, beta=SI_beta, epsilon=0)
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
@@ -324,11 +342,11 @@ while i_episode<n_episode:
 		if  update and np.mean(val_utility)>best_val_utility:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
-			os.makedirs(f"Models/DoubleDQN/{mode}/{int(st_time)}/best", exist_ok=True)
-			VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_model.ckpt")
+			os.makedirs(f"Models/SplitDDQN/{mode}/{int(st_time)}/best", exist_ok=True)
+			FairVF1.save_model(f"Models/SplitDDQN/{mode}/{int(st_time)}/best/best_model.ckpt")
 			print("Saved best model")
 			#Write the logs to a file
-			with open(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
+			with open(f"Models/SplitDDQN/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
 				f.write(f"Validation Utility: {np.mean(val_utility)}\n")
 				f.write(f"Validation Fairness: {np.mean(val_fairness)}\n")
 				f.write(f"Validation Min Utility: {np.mean(val_mins)}\n")
@@ -338,12 +356,11 @@ while i_episode<n_episode:
 				f.write(f"Simple Obs: {simple_obs}\n")
 				f.write(f"Reallocate: {reallocate}\n")
 				f.write(f"Central Rewards: {central_rewards}\n")
-				f.write(f"Learning Beta: {learning_beta}\n")
 				f.write(f"Learning Rate: {learning_rate}\n")
-				f_rew = "Variance" if variance_fairness else "SI" 
-				f.write(f"Fairness reward: {f_rew}\n")
 				f.write(f"Warm Start: {warm_start}\n")
 				f.write(f"Past Discount: {past_discount}\n")
+				f.write(f"Split fairness type: {split_ftype}\n")
+				f.write(f"Split Utility Function path : {model_loc}\n")
 
 
 	

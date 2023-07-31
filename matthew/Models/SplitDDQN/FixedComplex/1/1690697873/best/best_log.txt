@@ -1,0 +1,13 @@
+Validation Utility: 2.2236800000000003
+Validation Fairness: 0.4547907821300975
+Validation Min Utility: 0.0
+Episode: 300
+Epsilon: 0.11114609992037351
+Simple Obs: False
+Reallocate: False
+Central Rewards: False
+Learning Rate: 3e-05
+Warm Start: 50
+Past Discount: 0.995
+Split fairness type: variance_diff
+Split Utility Function path : Models/DoubleDQN/FixedComplex/0.0/1690319126/best/best_model.ckpt

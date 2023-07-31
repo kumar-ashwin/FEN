@@ -102,6 +102,22 @@ class ValueNetwork():
 			weights = self.session.run(self.W)
 		return weights
 
+class FairValueNetwork(ValueNetwork):
+	def __init__(self, value_net, num_features, hidden_size, learning_rate=.01, beta=0.5):
+		#initialize the super class
+		super(FairValueNetwork, self).__init__(num_features, hidden_size, learning_rate)
+		self.value_net = value_net
+		self.beta = beta
+	
+	def get(self, states):
+		utility = self.value_net.get(states)
+		fairness = self.session.run(self.output, feed_dict={self.observations: states})
+		
+		#combine the two
+		return utility + self.beta*fairness
+
+		
+
 class PPOPolicyNetwork():
 	def __init__(self, num_features, layer_size, num_actions, epsilon=.2,
 				 learning_rate=9e-4):
