@@ -141,7 +141,7 @@ def get_fairness_from_su(su_prev, su_post, ftype="variance"):
 		for i in range(n_agents):
 			z_i = su_prev[i]
 			z_i2 = su_post[i]
-			scores[i] = ((z_i2 -z2bar)**2 - (z_i - zbar)**2)/n_agents   #The exact contribution. Not an estimate.
+			scores[i] = -((z_i2 -z2bar)**2 - (z_i - zbar)**2)/n_agents   #The exact contribution. Not an estimate.
 		return scores
 	else:
 		print("Fairness type not supported. Exiting")
