@@ -72,7 +72,10 @@ ep_epsilon = epsilon
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
-model_loc = "Models/DoubleDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
+model_loc = "Models/DoubleDQN/FixedComplex/0.0/1690319126/best/best_model.ckpt" #Base U model
+model_loc = "Models/SplitDDQN/FixedComplex_split_diff/0.0/1690789906/best/best_model.ckpt" #Split var diff model trained with above U
+model_loc = "Models/DoubleDQN/FixedComplex/1.0/1690319181/model_5000.ckpt"
+
 # model_loc = "Models/DoubleDQNRetrain/FixedComplex/0.9/1690240368/model_5000.ckpt"
 # model_loc = 'Models/DoubleDQNRetrain/FixedComplex/0.7/1690240427/model_5000.ckpt'
 VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.000003) 

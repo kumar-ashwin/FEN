@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from tensorboard.plugins.hparams import api as hp
 
 from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer
-from matching import compute_best_actions, SI_reward, variance_penalty
+from matching import compute_best_actions, SI_reward, variance_penalty, get_fairness_from_su
 from Environment import MatthewEnvt
 
 
@@ -37,6 +37,10 @@ logging = True
 beta = 0
 learning_beta = 0.9
 variance_fairness = True
+fairness_type = "variance"
+fairness_type = "variance_diff"
+fairness_type = "SI"
+fairness_type = "split_diff"
 
 max_size = 0.5
 # if central_rewards:

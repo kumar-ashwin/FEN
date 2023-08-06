@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 from tensorboard.plugins.hparams import api as hp
 
 from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer, FairValueNetwork
-from matching import compute_best_actions, SI_reward, variance_penalty
+from matching import compute_best_actions, SI_reward, variance_penalty, get_fairness_from_su
 from Environment import MatthewEnvt
 
 
@@ -38,9 +38,10 @@ central_rewards = False
 simple_obs = False
 logging = True
 
-beta = 0.2
+beta = 1
 SI_beta = 0
 split_ftype = "variance_diff"
+split_ftype = "SI"
 split_ftype = "split_diff"
 
 max_size = 0.5
@@ -101,21 +102,22 @@ learning_rate = 0.00003
 VF = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=0.00003)
 VF.load_model(model_loc)
 
-fair_model_loc = "Models/SplitDDQN_SI_bug/FixedComplex/0/1690660552/model_4000.ckpt"
+# fair_model_loc = "Models/SplitDDQN_SI_bug/FixedComplex/0/1690660552/model_4000.ckpt"
+# fair_model_loc = "Models/SplitDDQN/FixedComplex/0.0/1690697843/best/best_model.ckpt"
+# fair_model_loc = "Models/SplitDDQN/FixedComplex_split_diff_bug/0.0/1690789906/best/best_model.ckpt"
+fair_model_loc = "Models/SplitDDQN/FixedComplex_split_diff/0.1/1690860431/model_4000.ckpt"
+fair_model_loc = "Models/SplitDDQN/FixedComplex_split_diff/1.0/1690860450/model_5000.ckpt"
 FairVF1 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta)
-FairVF1.load_model(fair_model_loc)
+if not training:
+	FairVF1.load_model(fair_model_loc)
 TargetNetwork1 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta)
 TargetNetwork1.set_weights(FairVF1.get_weights())
 
 FairVF2 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta) 
-FairVF2.load_model(fair_model_loc)
+if not training:
+	FairVF2.load_model(fair_model_loc)
 TargetNetwork2 = FairValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate, value_net=VF, beta=beta)
 TargetNetwork2.set_weights(FairVF2.get_weights())
-
-
-# if not training:
-# 	model_loc = ""
-# 	FairVF1.load_model(model_loc)
 
 def simple_score(state):
 	#For sending to the SimpleValueNetwork class
@@ -123,29 +125,9 @@ def simple_score(state):
 	#TODO: For this case, rewrite this function to make it the SI reward. That should be a decent baseline
 	return 100 if state[-3]==-1 else state[-1]
 
-# VF1=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
-# VF2=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+# Fair_VF1=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
+# Fair_VF2=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 
-def get_fairness_from_su(su_prev, su_post, ftype="variance"):
-	# su_prev and su_post are lists of discounted utilities
-	# ftype is the type of fairness to compute. Currently, only variance is supported
-	if ftype=="variance":
-		return [-np.var(su_post)/n_agents for i in range(n_agents)]
-	elif ftype=="variance_diff":
-		return [-np.var(su_post)/n_agents + np.var(su_prev)/n_agents for i in range(n_agents)]
-	elif ftype=="split_diff":
-		#Each agent gets score based on how much they contributed
-		scores = [0 for i in range(n_agents)]
-		zbar = np.mean(su_prev)
-		z2bar = np.mean(su_post)
-		for i in range(n_agents):
-			z_i = su_prev[i]
-			z_i2 = su_post[i]
-			scores[i] = -((z_i2 -z2bar)**2 - (z_i - zbar)**2)/n_agents   #The exact contribution. Not an estimate.
-		return scores
-	else:
-		print("Fairness type not supported. Exiting")
-		exit()
 
 best_val_utility = 0.0
 fairness = []
@@ -187,12 +169,11 @@ while i_episode<n_episode:
 		su_post = copy.deepcopy(M.discounted_su)
 		#TODO: Compute the fairness reward based on the change in variance before and after, and the contribution of each agents' action
 		#TODO: Alternative, simple solution: Fairness reward is just the change in variance to all agents. Learn to predict the current variance = change in variance + successor variance. 
-		f_reward = get_fairness_from_su(su_prev, su_post, ftype=split_ftype)
+		f_reward = get_fairness_from_su(su_prev, su_post, ftype=split_ftype, action=actions)
 
 		#Add to replay buffer
 		#Experience stores - [(s,a), r(s,a,s'), s']
 		experience = copy.deepcopy([pd_states, f_reward, M.get_state()])
-		#pick a random buffer to add to
 		if selected_VF_id==0:
 			replayBuffer1.add(experience)
 		else:
@@ -232,7 +213,7 @@ while i_episode<n_episode:
 
 				#Perform batched updates
 				states = np.array([old_pd_states[i] for i in range(n_agents)])
-				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork2.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
+				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork2.get_fairness_value(np.array([new_pd_actions[i]])) for i in range(n_agents)])
 				target_values = target_values.reshape(-1)
 				
 				loss = FairVF1.update(states, target_values)
@@ -253,7 +234,7 @@ while i_episode<n_episode:
 
 				#Perform batched updates
 				states = np.array([old_pd_states[i] for i in range(n_agents)])
-				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork1.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
+				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork1.get_fairness_value(np.array([new_pd_actions[i]])) for i in range(n_agents)])
 				target_values = target_values.reshape(-1)
 
 				loss = FairVF2.update(states, target_values)

@@ -115,6 +115,9 @@ class FairValueNetwork(ValueNetwork):
 		
 		#combine the two
 		return utility + self.beta*fairness
+	
+	def get_fairness_value(self, states):
+		return self.session.run(self.output, feed_dict={self.observations: states})
 
 		
 
