@@ -118,8 +118,10 @@ class FairValueNetwork(ValueNetwork):
 	
 	def get_fairness_value(self, states):
 		return self.session.run(self.output, feed_dict={self.observations: states})
+	
+	def get_utility_value(self, states):
+		return self.value_net.get(states)
 
-		
 
 class PPOPolicyNetwork():
 	def __init__(self, num_features, layer_size, num_actions, epsilon=.2,
@@ -276,3 +278,247 @@ class PrioritizedReplayBuffer(ReplayBuffer):
 	def clear(self):
 		super().clear()
 		self.priorities = np.zeros((self.max_size,), dtype=np.float32)
+
+
+from matching import compute_best_actions
+
+class DDQNAgent():
+	def __init__(self, 
+	      envt,
+	      num_features, 
+		  hidden_size=256, 
+		  learning_rate=0.0001, 
+		  replay_buffer_size=100000,
+		  GAMMA=0.99,
+		  learning_beta=0.0,
+		  ):
+		
+		self.envt = envt
+		self.GAMMA = GAMMA
+		self.learning_beta = learning_beta
+
+		self.VF1 = ValueNetwork(num_features, hidden_size, learning_rate)
+		self.TargetNetwork1 = ValueNetwork(num_features, hidden_size, learning_rate)
+		self.TargetNetwork1.set_weights(self.VF1.get_weights())
+		self.replayBuffer1 = ReplayBuffer(replay_buffer_size)
+
+		self.VF2 = ValueNetwork(num_features, hidden_size, learning_rate)
+		self.TargetNetwork2 = ValueNetwork(num_features, hidden_size, learning_rate)
+		self.TargetNetwork2.set_weights(self.VF2.get_weights())
+		self.replayBuffer2 = ReplayBuffer(replay_buffer_size)
+
+		self.nets = [self.VF1, self.VF2]
+		self.RBs = [self.replayBuffer1, self.replayBuffer2]
+		self.current_net_index = 0
+		self.current_net = self.VF1
+		self.current_RB = self.replayBuffer1
+
+	def get(self, states):
+		return self.current_net.get(states)
+	
+	def set_active_net(self, net_index):
+		self.current_net_index = net_index
+		self.current_net = self.nets[self.current_net_index]
+		self.current_RB = self.RBs[self.current_net_index]
+
+	def add_experience(self, post_decision_state, rewards, f_rewards, new_state):
+		# experience = copy.deepcopy([post_decision_state, rewards, f_rewards, new_state])
+		experience = {
+			'pd_state': copy.deepcopy(post_decision_state),
+			'rewards': copy.deepcopy(rewards),
+			'f_rewards': copy.deepcopy(f_rewards),
+			'new_state': copy.deepcopy(new_state)
+		}
+		self.current_RB.add(experience)
+	
+	def _update(self, experiences, net, target_net, double_target):
+		#Abstracted function to handle updates for both networks
+		# Note: SI beta not supported, always steps with beta=0
+		n_agents = self.envt.n_agents
+		n_resources = self.envt.n_resources
+		losses = []
+		for experience in experiences:
+			#Compute best action
+			pd_state, rewards, f_rewards, new_state = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state']
+			self.envt.set_state(new_state)
+			succ_obs = self.envt.get_obs()
+			opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
+			new_pd_states = self.envt.get_post_decision_states(succ_obs, opt_actions)
+			
+			td_rewards = np.array(rewards)
+			if self.learning_beta>0:
+				td_rewards = rewards + self.learning_beta*np.array(f_rewards)
+
+			#Perform batched updates
+			states = np.array([pd_state[i] for i in range(n_agents)])
+			target_values = np.array([td_rewards[i] + self.GAMMA * double_target.get(np.array([new_pd_states[i]])) for i in range(n_agents)])
+			target_values = target_values.reshape(-1)
+			
+			loss = net.update(states, target_values)
+			losses.append(loss)
+		return losses
+	
+	def update(self, num_samples, num_min_samples=100000):
+		min_RB_size = num_min_samples//self.envt.n_agents
+		if self.replayBuffer1.size < min_RB_size or self.replayBuffer2.size < min_RB_size:
+			return	[],[]
+		
+		self.envt.reset()
+		experiences1 = self.replayBuffer1.sample(num_samples)
+		experiences2 = self.replayBuffer2.sample(num_samples)
+
+		losses1 = self._update(experiences1, self.VF1, self.TargetNetwork1, self.TargetNetwork2)
+		losses2 = self._update(experiences2, self.VF2, self.TargetNetwork2, self.TargetNetwork1)
+		return losses1, losses2
+
+	def update_from_experiences(self, experiences1, experiences2):
+		# For use from an external source
+		self.envt.reset()
+		losses1 = self._update(experiences1, self.VF1, self.TargetNetwork1, self.TargetNetwork2)
+		losses2 = self._update(experiences2, self.VF2, self.TargetNetwork2, self.TargetNetwork1)
+		return losses1, losses2
+
+	
+	def update_target_networks(self):
+		self.TargetNetwork1.set_weights(self.VF1.get_weights())
+		self.TargetNetwork2.set_weights(self.VF2.get_weights())
+
+	def load_model(self, save_path):
+		self.VF1.load_model(save_path)
+		self.VF2.load_model(save_path)
+		self.TargetNetwork1.load_model(save_path)
+		self.TargetNetwork2.load_model(save_path)
+
+	def save_model(self, save_path):
+		self.VF1.save_model(save_path)
+
+	def get_weights(self):
+		return self.VF1.get_weights()
+	
+	def set_weights(self, weights):
+		self.VF1.set_weights(weights)
+		self.VF2.set_weights(weights)
+		self.TargetNetwork1.set_weights(weights)
+		self.TargetNetwork2.set_weights(weights)
+
+
+class SplitDDQNAgent():
+	"""
+	Agent class for Split DDQN
+	A wrapper class for the two DDQNs, one for fairness, one for efficiency
+	Handles saving experiences and dividing up the learning between the two networks
+	Both agents will see the same state, but will have different rewards. 
+		Fair agent will see the fairness rewards, and the util agent will see the utility rewards
+		The experiences are preprocessed before sending to the networks
+	"""
+	def __init__(self, 
+	      envt,
+	      num_features, 
+		  hidden_size=256, 
+		  learning_rate=0.0001, 
+		  replay_buffer_size=100000,
+		  GAMMA=0.99,
+		  learning_beta=0.0,
+		  learn_utility=True,
+		  learn_fairness=True,
+		  ):
+		self.envt = envt
+		self.learning_beta = learning_beta
+		self.learn_utility = learn_utility
+		self.learn_fairness = learn_fairness
+		self.GAMMA = GAMMA
+
+		self.utilAgent = DDQNAgent(envt, num_features, hidden_size, learning_rate, replay_buffer_size=0, GAMMA=GAMMA, learning_beta=0)
+		self.fairAgent = DDQNAgent(envt, num_features, hidden_size, learning_rate, replay_buffer_size=0, GAMMA=GAMMA, learning_beta=0)
+		self.RB1 = ReplayBuffer(replay_buffer_size)
+		self.RB2 = ReplayBuffer(replay_buffer_size)
+
+		self.current_net_index = 0
+		#select this index for both util and fair agent
+		self.utilAgent.set_active_net(self.current_net_index)
+		self.fairAgent.set_active_net(self.current_net_index)
+		self.current_RB = self.RB1
+		
+	def set_active_net(self, net_index):
+		self.current_net_index = net_index
+		self.utilAgent.set_active_net(net_index)
+		self.fairAgent.set_active_net(net_index)
+		self.current_RB = self.RB1 if net_index==0 else self.RB2
+	
+	def get(self, state, beta=None):
+		if beta is None:
+			beta = self.learning_beta
+		return self.utilAgent.get(state) + beta*self.fairAgent.get(state)
+
+	def get_utility(self, state):
+		return self.utilAgent.get(state)
+	
+	def get_fairness(self, state):
+		return self.fairAgent.get(state)
+	
+	def add_experience(self, post_decision_state, rewards, f_rewards, new_state):
+		# experience = copy.deepcopy([post_decision_state, rewards, f_rewards, new_state])
+		experience = {
+			'pd_state': copy.deepcopy(post_decision_state),
+			'rewards': copy.deepcopy(rewards),
+			'f_rewards': copy.deepcopy(f_rewards),
+			'new_state': copy.deepcopy(new_state)
+		}
+		self.current_RB.add(experience)
+
+	def update(self, num_samples, num_min_samples=100000):
+		min_RB_size = num_min_samples//self.envt.n_agents
+		loss_logs = {'util': [], 'fair': []}
+		if self.RB1.size < min_RB_size or self.RB2.size < min_RB_size:
+			return	loss_logs
+		
+		self.envt.reset()
+		experiences1 = self.RB1.sample(num_samples)
+		experiences2 = self.RB2.sample(num_samples)
+
+		if self.learn_utility:
+			u_losses1, u_losses2= self.utilAgent.update_from_experiences(experiences1, experiences2)
+			loss_logs['util'].append(u_losses1)
+			loss_logs['util'].append(u_losses2)
+
+		if self.learn_fairness:
+			f_experience1 = []
+			#Modify experiences to have fairness rewards
+			for experience in experiences1:
+				f_experience = copy.deepcopy(experience)
+				f_experience['rewards'] = f_experience['f_rewards']
+				f_experience1.append(f_experience)
+			f_experience2 = []
+			for experience in experiences2:
+				f_experience = copy.deepcopy(experience)
+				f_experience['rewards'] = f_experience['f_rewards']
+				f_experience2.append(f_experience)
+			
+			f_losses1, f_losses2 = self.fairAgent.update_from_experiences(f_experience1, f_experience2)
+			loss_logs['fair'].append(f_losses1)
+			loss_logs['fair'].append(f_losses2)
+		
+		return loss_logs
+	
+	def update_target_networks(self):
+		self.utilAgent.update_target_networks()
+		self.fairAgent.update_target_networks()
+
+	def load_util_model(self, save_path):
+		self.utilAgent.load_model(save_path)
+
+	def load_fair_model(self, save_path):
+		self.fairAgent.load_model(save_path)
+
+	def save_util_model(self, save_path):
+		self.utilAgent.save_model(save_path)
+
+	def save_fair_model(self, save_path):
+		self.fairAgent.save_model(save_path)
+
+	def save_model(self, save_path):
+		if self.learn_utility:
+			self.utilAgent.save_model(save_path+'_util')
+		if self.learn_fairness:
+			self.fairAgent.save_model(save_path+'_fair')
+		

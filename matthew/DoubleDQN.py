@@ -15,17 +15,15 @@ import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
 
-from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer
-from matching import compute_best_actions, SI_reward, variance_penalty, get_fairness_from_su
+from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer, DDQNAgent, SplitDDQNAgent
+from matching import compute_best_actions
+from utils import SI_reward, variance_penalty, get_fairness_from_su, EpsilonDecay
 from Environment import MatthewEnvt
 
 
 # Use CPU
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-replayBuffer1 = ReplayBuffer(250000)
-replayBuffer2 = ReplayBuffer(250000)
 
 greedy = False
 training = True
@@ -34,13 +32,13 @@ central_rewards = False
 simple_obs = False
 logging = True
 
+split = False
+learn_fairness = True
+learn_utility = True
+
 beta = 0
-learning_beta = 0.9
-variance_fairness = True
-fairness_type = "variance"
-fairness_type = "variance_diff"
-fairness_type = "SI"
-fairness_type = "split_diff"
+learning_beta = 0.5
+fairness_type = "split_diff" # ['split_diff', 'split_variance', 'variance_diff', 'variance', 'SI']
 
 max_size = 0.5
 # if central_rewards:
@@ -50,6 +48,8 @@ max_size = 0.5
 mode = "Reallocate" if reallocate else "Fixed"
 mode += "Central" if central_rewards else ""
 mode += "" if simple_obs else "Complex"
+# mode+= "/Split/" if split else "/Joint/"
+mode += f"_{fairness_type}"
 mode += f"/{learning_beta}"
 
 st_time = time.time()
@@ -64,7 +64,7 @@ n_resources=3
 
 warm_start = 50
 past_discount = 0.995
-#initialize agents and items. Board size is between 0 and 1
+#initialize environments
 M = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount)
 M_train = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount)
 M_val = MatthewEnvt(n_agents=n_agents, n_resources=n_resources, max_size=max_size, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount)
@@ -81,40 +81,29 @@ max_steps = 500
 i_episode = 0
 render = False
 
-epsilon = 0.5
-min_epsilon = 0.05
-if greedy:
-	epsilon = 0.00
-	min_epsilon = 0.00
-epsilon_decay = 0.995
-ep_epsilon = epsilon
+eps = EpsilonDecay(start=0.5, end=0.05, decay_rate=0.995, greedy=greedy)
+ep_epsilon = eps.reset()
 
 obs = M.get_obs()
 num_features = len(obs[0][0])
 
 # model_loc = "Models/DoubleDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
-
 learning_rate = 0.00003
-VF1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate) 
-TargetNetwork1 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate)
-TargetNetwork1.set_weights(VF1.get_weights())
-
-VF2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate) 
-TargetNetwork2 = ValueNetwork(num_features=num_features, hidden_size=256, learning_rate=learning_rate)
-TargetNetwork2.set_weights(VF2.get_weights())
-
-
+agent = DDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta)
+if split:
+	agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+			learn_utility=learn_utility, learn_fairness=learn_fairness)
+	if not learn_utility:
+		u_model_loc = "Models/DoubleDQN/FixedComplex/0/"
+		agent.load_util_model(u_model_loc)
+	if not learn_fairness:
+		f_model_loc = "Models/DoubleDQN/FixedComplex/0/"
+		agent.load_fair_model(f_model_loc)
+	
 if not training:
 	model_loc = ""
-	VF1.load_model(model_loc)
+	agent.load_model(model_loc)
 
-def simple_score(state):
-	#For sending to the SimpleValueNetwork class
-	#Score is just how far the agents are from the resources.
-	return 100 if state[-3]==-1 else state[-1]
-
-# VF1=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
-# VF2=SimpleValueNetwork(score_func=simple_score, discount_factor=GAMMA)
 best_val_utility = 0.0
 fairness = []
 utility = []
@@ -131,115 +120,38 @@ while i_episode<n_episode:
 	M.reset()
 	obs = M.get_obs()
 
-	ep_epsilon = ep_epsilon * epsilon_decay
-	if ep_epsilon<min_epsilon:
-		ep_epsilon = min_epsilon
+	ep_epsilon = eps.decay()
 
 	selected_VF_id = random.randint(0,1)
+	agent.set_active_net(selected_VF_id)
 	while steps<max_steps:
 
 		steps+=1
-		#For each agent, select the action using the central agent
-		if selected_VF_id==0:
-			actions = compute_best_actions(VF1, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
-		else:
-			actions = compute_best_actions(VF2, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
-
+		#For each agent, select the action: central allocation
+		actions = compute_best_actions(agent, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=beta, epsilon=ep_epsilon)
 		pd_states = M.get_post_decision_states(obs, actions)
 		
-
+		su_prev = copy.deepcopy(M.discounted_su)
 		#Take a step based on the actions, get rewards and updated agents, resources etc.
 		rewards = M.step(actions)
 		score += sum(rewards)
 		obs = M.get_obs()
+		su_post = copy.deepcopy(M.discounted_su)
+		f_rewards = get_fairness_from_su(su_prev, su_post, ftype=fairness_type, action=actions)
 
 		#Add to replay buffer
-		#Experience stores - [(s,a), r(s,a,s'), s']
-		experience = copy.deepcopy([pd_states, rewards, M.get_state()])
-		#pick a random buffer to add to
-		if selected_VF_id==0:
-			replayBuffer1.add(experience)
-		else:
-			replayBuffer2.add(experience)
-		
+		#Experience stores - [(s,a), r(s,a,s'), r_f(s,a,s'), s']
+		agent.add_experience(pd_states, rewards, f_rewards, M.get_state())
+
 		#Update the policies
 		if steps%T==0 and training:
-			#Update the value function
-			if len(replayBuffer1.buffer) < 100000/n_agents:
-				continue
-
-			#Experience  = s,a,r(s,a,s'), s')
-			#Q(s,a) = R(s,a,s') + \gamma max_a Q(s',a)
-			#For double DQN,
-			#Q1(s,a) = R(s,a,s') + \gamma TargetNetwork2(s',argmax_a TargetNetwork1(s',a))
-			#Q2(s,a) = R(s,a,s') + \gamma TargetNetwork1(s',argmax_a TargetNetwork2(s',a))
-
-			# print("Updating Value Function")
-			M_train.reset()
-			#Sample a batch of experiences from the replay buffer
-			num_samples = 32
-			experiences = replayBuffer1.sample(int(num_samples))
-			experiences2 = replayBuffer2.sample(int(num_samples))
-
-			for experience in experiences:
-				#Compute best action
-				old_pd_states, old_rewards, new_state = experience
-				M_train.set_state(new_state)
-				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork1, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=beta, epsilon=0.0)
-				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
-
-				if central_rewards:
-					old_rewards = [np.mean(old_rewards)]*n_agents
-				
-				old_rewards = np.array(old_rewards)
-				if learning_beta>0:
-					if variance_fairness:
-						fair_rewards = variance_penalty(M_train.discounted_su)
-					else:
-						fair_rewards = SI_reward(M_train.discounted_su, direction="adv")
-					# print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
-
-				new_obs = M_train.get_obs()
-
-				#Perform batched updates
-				states = np.array([old_pd_states[i] for i in range(n_agents)])
-				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork2.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
-				target_values = target_values.reshape(-1)
-				
-				loss = VF1.update(states, target_values)
-				VF1_loss.append(loss)
-			
-			for experience in experiences2:
-				#Compute best action
-				old_pd_states, old_rewards, new_state = experience
-				M_train.set_state(new_state)
-				succ_obs = M_train.get_obs()
-				opt_actions = compute_best_actions(TargetNetwork2, succ_obs, M_train.targets, n_agents, n_resources, M_train.discounted_su, beta=beta, epsilon=0.0)
-				new_pd_actions = M_train.get_post_decision_states(succ_obs, opt_actions)
-
-				if central_rewards:
-					old_rewards = [np.mean(old_rewards)]*n_agents
-				
-				old_rewards = np.array(old_rewards)
-				if learning_beta>0:
-					if variance_fairness:
-						fair_rewards = variance_penalty(M_train.discounted_su)
-					else:
-						fair_rewards = SI_reward(M_train.discounted_su, direction="adv")
-					# print(fair_rewards)
-					old_rewards = old_rewards + learning_beta*np.array(fair_rewards)
-
-				new_obs = M_train.get_obs()
-
-				#Perform batched updates
-				states = np.array([old_pd_states[i] for i in range(n_agents)])
-				target_values = np.array([old_rewards[i] + GAMMA * TargetNetwork1.get(np.array([new_pd_actions[i]])) for i in range(n_agents)])
-				target_values = target_values.reshape(-1)
-
-				loss = VF2.update(states, target_values)
-				VF2_loss.append(loss)
+			if not split:
+				losses1, losses2 = agent.update(num_samples=32)
+				VF1_loss.extend(losses1)
+				VF2_loss.extend(losses2)
+			else:
+				print("TODO: Split update")
+				# losses1, losses2 = agent.update(num_samples=32)
 		
 		if render:
 			M.render()
@@ -277,21 +189,19 @@ while i_episode<n_episode:
 		
 		#update the target network every 20 episodes
 		if i_episode%20==0:
-			TargetNetwork1.set_weights(VF1.get_weights())
-			TargetNetwork2.set_weights(VF2.get_weights())
+			agent.update_target_networks()
 
-	# Save the model every 500 episodes
+	# Save the model every 1000 episodes
 	if i_episode%1000==0:
-		VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
+		agent.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
 	if i_episode%10==0 and training:
+		#set selected VF to 0
+		agent.set_active_net(0)
 		print("Validating")
-		mult = 1
-		update = False
-		if i_episode%100==0:
-			mult = 25
-			update = True
+		update = i_episode%100==0
+		mult = 25 if update else 1
 
 		#Run 50 validation episodes with the current policy
 		val_fairness = []
@@ -303,7 +213,7 @@ while i_episode<n_episode:
 			obs = M_val.get_obs()
 			score = 0
 			for steps in range(max_steps):
-				actions = compute_best_actions(VF1, obs, M_val.targets, n_agents, n_resources, M_val.discounted_su, beta=beta, epsilon=0)
+				actions = compute_best_actions(agent, obs, M_val.targets, n_agents, n_resources, M_val.discounted_su, beta=beta, epsilon=0)
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
@@ -325,7 +235,7 @@ while i_episode<n_episode:
 			best_val_utility = np.mean(val_utility)
 			#make directory if it doesn't exist
 			os.makedirs(f"Models/DoubleDQN/{mode}/{int(st_time)}/best", exist_ok=True)
-			VF1.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_model.ckpt")
+			agent.save_model(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_model.ckpt")
 			print("Saved best model")
 			#Write the logs to a file
 			with open(f"Models/DoubleDQN/{mode}/{int(st_time)}/best/best_log.txt", "w") as f:
@@ -340,13 +250,7 @@ while i_episode<n_episode:
 				f.write(f"Central Rewards: {central_rewards}\n")
 				f.write(f"Learning Beta: {learning_beta}\n")
 				f.write(f"Learning Rate: {learning_rate}\n")
-				f_rew = "Variance" if variance_fairness else "SI" 
-				f.write(f"Fairness reward: {f_rew}\n")
+				f_rew = fairness_type
+				f.write(f"Fairness Type: {f_rew}\n")
 				f.write(f"Warm Start: {warm_start}\n")
 				f.write(f"Past Discount: {past_discount}\n")
-
-
-	
-
-				
-
