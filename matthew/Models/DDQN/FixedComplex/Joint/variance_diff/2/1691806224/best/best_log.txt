@@ -1,0 +1,16 @@
+Validation Utility: 1107.68
+Validation Fairness: -0.02798739616028867
+Validation Min Utility: 108.64
+Validation Objective: 1101.5215999999998
+Validation Variance: 3.0791999999999997
+Episode: 1500
+Epsilon: 0.05
+Simple Obs: False
+Reallocate: False
+Central Rewards: False
+SI Beta: 0
+Learning Beta: 2
+Learning Rate: 3e-05
+Fairness Type: variance_diff
+Warm Start: 50
+Past Discount: 0.995

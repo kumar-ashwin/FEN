@@ -1,0 +1,5 @@
+model_checkpoint_path: "best_model.ckpt_fair"
+all_model_checkpoint_paths: "../model_1000.ckpt_fair"
+all_model_checkpoint_paths: "../model_2000.ckpt_fair"
+all_model_checkpoint_paths: "../model_3000.ckpt_fair"
+all_model_checkpoint_paths: "best_model.ckpt_fair"

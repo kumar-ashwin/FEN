@@ -1,10 +1,10 @@
-Validation Utility: 796.76
-Validation Fairness: -82.82167235354876
-Validation Min Utility: 32.36
-Validation Objective: 727.5208600000001
-Validation Variance: 6923.914000000001
-Episode: 300
-Epsilon: 0.11114609992037351
+Validation Utility: 1226.12
+Validation Fairness: -236.40253526855852
+Validation Min Utility: 0.04
+Validation Objective: 935.611156
+Validation Variance: 29050.884400000003
+Episode: 4600
+Epsilon: 0.05
 Simple Obs: False
 Reallocate: False
 Central Rewards: False

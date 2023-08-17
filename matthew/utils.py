@@ -102,8 +102,8 @@ def add_epi_metrics_to_logs(summary_writer, rewards, losses, beta, i_episode, ma
 
 	if verbose:
 		print(rewards)
-		print("Ep {:>5d} | Objective {:>5.2f} | Beta {:>5.2f}".format(i_episode, objective, beta))
-		print("Ep {:>5d} | Utility {:>5.2f} | Variance {:>5.2f}".format(i_episode, utility, variance))
+		print("Ep {:>5d} | Objective   {:>5.2f} | Beta {:>5.4f}".format(i_episode, objective, beta))
+		print("Ep {:>5d} | Utility     {:>5.2f} | Variance {:>5.2f}".format(i_episode, utility, variance))
 		print("Ep {:>5d} | Min Utility {:>5.2f} | Fairness {:>5.2f}".format(i_episode, min_utility, fairness))
 
 	if logging:

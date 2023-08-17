@@ -34,13 +34,13 @@ logging = True
 
 split = True
 learn_fairness = True
-learn_utility = True
+learn_utility = False
 
 SI_beta = 0
-learning_beta = 0.001
-fairness_type = "split_diff" # ['split_diff', 'split_variance', 'variance_diff', 'variance', 'SI']
+learning_beta = 10.0
+fairness_type = "split_diff" # ['split_diff', 'variance_diff', 'split_variance', 'variance', 'SI']
+# fairness_type = "variance_diff"
 
-max_size = 0.5
 # if central_rewards:
 # 	print("Central rewards for DQN not implemented yet. Exiting")
 # 	exit()
@@ -48,7 +48,12 @@ max_size = 0.5
 mode = "Reallocate" if reallocate else "Fixed"
 mode += "Central" if central_rewards else ""
 mode += "" if simple_obs else "Complex"
-mode+= "/Split/" if split else "/Joint/"
+mode+= "/Split" if split else "/Joint"
+if split and not learn_utility:
+	mode += "NoUtility"
+if split and not learn_fairness:
+	mode += "NoFairness"
+mode += "/"
 mode += f"{fairness_type}"
 mode += f"/{learning_beta}"
 
@@ -61,6 +66,7 @@ if training and logging:
 else:
 	summary_writer = None
 
+max_size = 0.50
 n_agents=10
 n_resources=3
 
@@ -96,7 +102,7 @@ if split:
 	agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
 			learn_utility=learn_utility, learn_fairness=learn_fairness)
 	if not learn_utility:
-		u_model_loc = "Models/DDQN/FixedComplex/0/"
+		u_model_loc = "Models/DDQN/FixedComplex/Split/split_diff/0.0/1691557008/best/best_model.ckpt_util"
 		agent.load_util_model(u_model_loc)
 	if not learn_fairness:
 		f_model_loc = "Models/DDQN/FixedComplex/0/"
@@ -187,6 +193,7 @@ while i_episode<n_episode:
 
 	# Save the model every 1000 episodes
 	if i_episode%1000==0:
+		os.makedirs(f"Models/DDQN/{mode}/{int(st_time)}/", exist_ok=True)
 		agent.save_model(f"Models/DDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
 	# # Validation runs every 500 episodes, to select best model
@@ -218,7 +225,7 @@ while i_episode<n_episode:
 			mean_val_metrics[key] = np.mean(value)
 			add_metric_to_logs(summary_writer, np.mean(value), "Validation_"+key, i_episode, logging=logging, verbose=True)
 
-		if  update and best_val_objective<mean_val_metrics['objective']:
+		if  update and best_val_objective<mean_val_metrics['objective'] and i_episode>1000: #At least 1000 episodes before trying to save a best model.
 			best_val_objective = mean_val_metrics['objective']
 			#make directory if it doesn't exist
 			os.makedirs(f"Models/DDQN/{mode}/{int(st_time)}/best", exist_ok=True)
@@ -243,3 +250,5 @@ while i_episode<n_episode:
 				f.write(f"Fairness Type: {fairness_type}\n")
 				f.write(f"Warm Start: {warm_start}\n")
 				f.write(f"Past Discount: {past_discount}\n")
+				if not learn_utility:
+					f.write(f"Utility Model: {u_model_loc}\n")

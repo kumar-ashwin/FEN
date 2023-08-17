@@ -1,0 +1,17 @@
+Validation Utility: 1222.56
+Validation Fairness: -268.543499931521
+Validation Min Utility: 0.08
+Validation Objective: -428.10744000000005
+Validation Variance: 33013.34880000001
+Episode: 1600
+Epsilon: 0.05
+Simple Obs: False
+Reallocate: False
+Central Rewards: False
+SI Beta: 0
+Learning Beta: 0.05
+Learning Rate: 3e-05
+Fairness Type: variance_diff
+Warm Start: 50
+Past Discount: 0.995
+Utility Model: Models/DDQN/FixedComplex/Split/split_diff/0.0/1691557008/best/best_model.ckpt_util
