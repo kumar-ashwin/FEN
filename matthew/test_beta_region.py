@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
 
-from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer, DDQNAgent, SplitDDQNAgent
+from Agents import DDQNAgent, SplitDDQNAgent, MultiHeadDDQNAgent
 from matching import compute_best_actions
 from utils import SI_reward, variance_penalty, get_fairness_from_su, EpsilonDecay, get_metrics_from_rewards, add_epi_metrics_to_logs, add_metric_to_logs
 from Environment import MatthewEnvt
@@ -35,6 +35,9 @@ logging = False
 split = True
 learn_fairness = True
 learn_utility = True
+multi_head = True
+
+phased_training = False
 
 if not split:
 	print("Unsupported")
@@ -42,15 +45,28 @@ if not split:
 
 SI_beta = 0
 learning_beta = 0.0
-# fairness_type = "split_diff" # ['split_diff', 'split_variance', 'variance_diff', 'variance', 'SI']
-fairness_type = "variance_diff" # ['split_diff', 'split_variance', 'variance_diff', 'variance', 'SI']
+fairness_type = "split_diff" # ['split_diff', 'split_variance', 'variance_diff', 'variance', 'SI']
+# fairness_type = "variance_diff" # ['split_diff', 'split_variance', 'variance_diff', 'variance', 'SI']
 
 max_size = 0.5
 
 mode = "Reallocate" if reallocate else "Fixed"
 mode += "Central" if central_rewards else ""
 mode += "" if simple_obs else "Complex"
-mode+= "/Split/" if split else "/Joint/"
+mode+= "/Test/" #Only for testing new features
+network_type = ""
+if multi_head:
+	network_type = "/MultiHead"
+elif split and not multi_head: 
+	network_type = "/Split"
+elif not split:
+	network_type = "/Joint"
+mode+= network_type
+mode += "Phased" if phased_training else ""
+if split:
+	mode += "NoUtility" if not learn_utility else ""
+	mode += "NoFairness" if not learn_fairness else ""
+mode += "/"
 mode += f"{fairness_type}"
 
 summary_writer = None
@@ -87,7 +103,11 @@ learning_rate = 0.00003
 
 agent = DDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta)
 if split:
-	agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+	if multi_head:
+		agent = MultiHeadDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+			    learn_utility=learn_utility, learn_fairness=learn_fairness, phased_learning=phased_training)
+	else:
+		agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
 		learn_utility=learn_utility, learn_fairness=learn_fairness)
 
 learning_beta=(None, None) #Just so this isn't accidentally used
@@ -114,7 +134,7 @@ for folder in os.listdir(fairness_model_folder):
 	
 	print(best_ep, beta)
 	fairness_models[beta] = model_loc
-	if split:
+	if split and not multi_head:
 		fairness_models[beta] = model_loc+"_fair"
 		if learn_utility:
 			utility_models[beta] = model_loc+"_util"
@@ -126,27 +146,33 @@ fairness_models = {k: v for k, v in sorted(fairness_models.items(), key=lambda i
 utility_models = {k: v for k, v in sorted(utility_models.items(), key=lambda item: item)}
 
 sp = "Split" if split else ""
+if split and multi_head:
+	sp = "MultiHead"
 both = "_both" if learn_utility and learn_fairness else ""
 savename = f"Results/BetaSweep/{sp}DDQN_{fairness_type}{both}_bestm_{n_episode}.csv"
 print(savename)
 
 results = pd.DataFrame(columns=['utility', 'fairness', 'min_utility', 'objective', 'variance', 'beta'])
 for fairness_beta, model_loc in fairness_models.items():
-	agent.load_util_model(utility_models[fairness_beta])
-	agent.load_fair_model(model_loc)
+	if multi_head:
+		agent.load_model(model_loc)
+	else:
+		agent.load_util_model(utility_models[fairness_beta])
+		agent.load_fair_model(model_loc)
 	base_learning_beta = fairness_beta
 	#Create a search space of learning betas from /10 to *10
-	learning_betas = [base_learning_beta/10, base_learning_beta/5, base_learning_beta/2, base_learning_beta, base_learning_beta*2, base_learning_beta*5, base_learning_beta*10]
-	learning_betas = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, base_learning_beta]
-	learning_betas_lists = [[0],[0.001*(i+1) for i in range(9)], [0.01*(i+1) for i in range(9)], [0.1*(i+1) for i in range(9)], [1, 2, 5, 10, base_learning_beta]]
-	learning_betas = []
-	for arr in learning_betas_lists:
-		learning_betas.extend(arr)
-	learning_betas = list(set(learning_betas))
-	learning_betas.sort()
+	evaluation_betas = [base_learning_beta/10, base_learning_beta/5, base_learning_beta/2, base_learning_beta, base_learning_beta*2, base_learning_beta*5, base_learning_beta*10]
+	evaluation_betas = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, base_learning_beta]
+	evaluation_betas_lists = [[0],[0.001*(i+1) for i in range(9)], [0.01*(i+1) for i in range(9)], [0.1*(i+1) for i in range(9)], [1, 2, 5, 10, base_learning_beta]]
+	evaluation_betas = []
+	for arr in evaluation_betas_lists:
+		evaluation_betas.extend(arr)
+	evaluation_betas = list(set(evaluation_betas))
+	evaluation_betas.sort()
 	
-	for learning_beta in learning_betas:
-		agent.learning_beta = learning_beta
+	for eval_beta in evaluation_betas:
+		# agent.learning_beta = eval_beta
+		agent.set_beta(eval_beta)
 		run_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 
 		i_episode = 0
@@ -161,11 +187,11 @@ for fairness_beta, model_loc in fairness_models.items():
 				actions = compute_best_actions(agent, obs, M_test.targets, n_agents, n_resources, M_test.discounted_su, beta=SI_beta, epsilon=0)
 				rewards = M_test.step(actions)
 				obs = M_test.get_obs()
-			epi_metrics = add_epi_metrics_to_logs(summary_writer, M_test.su, None, learning_beta, i_episode, max_steps, verbose=False, prefix="", logging=logging)
+			epi_metrics = add_epi_metrics_to_logs(summary_writer, M_test.su, None, eval_beta, i_episode, max_steps, verbose=False, prefix="", logging=logging)
 			for key, value in epi_metrics.items():
 				run_metrics[key].append(value)
 		#print averages
-		run_metrics['beta'] = [learning_beta for i in range(len(run_metrics['utility']))]
+		run_metrics['beta'] = [eval_beta for i in range(len(run_metrics['utility']))]
 		run_metrics['base_beta'] = [base_learning_beta for i in range(len(run_metrics['utility']))]
 		avg_results = pd.DataFrame({key:np.mean(value) for key, value in run_metrics.items()}, index=[0])
 		print(avg_results)

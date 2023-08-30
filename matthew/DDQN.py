@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
 
-from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer, DDQNAgent, SplitDDQNAgent
+from Agents import DDQNAgent, SplitDDQNAgent, MultiHeadDDQNAgent
 from matching import compute_best_actions
 from utils import SI_reward, variance_penalty, get_fairness_from_su, EpsilonDecay, get_metrics_from_rewards, add_epi_metrics_to_logs, add_metric_to_logs
 from Environment import MatthewEnvt
@@ -34,21 +34,43 @@ logging = True
 
 split = True
 learn_fairness = True
-learn_utility = False
+learn_utility = True
+multi_head = True
+
+phased_training = False
+phase_length = 200
+if phased_training and not split:
+	print("Phased training only supported for split")
+	exit()
+if phased_training and not (learn_fairness and learn_utility):
+	print("Phased training only supported for learning both fairness and utility")
+	exit()
+
+if multi_head and not split:
+	print("Multi head only supported for split")
+	exit()
+if multi_head and not (learn_fairness and learn_utility):
+	print("Multi head only supported for learning both fairness and utility")
+	exit()
 
 SI_beta = 0
-learning_beta = 10.0
+learning_beta = 0.011
 fairness_type = "split_diff" # ['split_diff', 'variance_diff', 'split_variance', 'variance', 'SI']
 # fairness_type = "variance_diff"
-
-# if central_rewards:
-# 	print("Central rewards for DQN not implemented yet. Exiting")
-# 	exit()
 
 mode = "Reallocate" if reallocate else "Fixed"
 mode += "Central" if central_rewards else ""
 mode += "" if simple_obs else "Complex"
-mode+= "/Split" if split else "/Joint"
+mode+= "/Test/" #Only for testing new features
+network_type = ""
+if multi_head:
+	network_type = "/MultiHead"
+elif split and not multi_head: 
+	network_type = "/Split"
+elif not split:
+	network_type = "/Joint"
+mode+= network_type
+mode += "Phased" if phased_training else ""
 if split and not learn_utility:
 	mode += "NoUtility"
 if split and not learn_fairness:
@@ -84,7 +106,7 @@ KTF.set_session(session)
 T = 100   # learning frequency for the policy and value networks
 totalTime = 0
 GAMMA = 0.98
-n_episode = 5000
+n_episode = 15000
 max_steps = 500
 i_episode = 0
 render = False
@@ -99,14 +121,18 @@ num_features = len(obs[0][0])
 learning_rate = 0.00003
 agent = DDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta)
 if split:
-	agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
-			learn_utility=learn_utility, learn_fairness=learn_fairness)
-	if not learn_utility:
-		u_model_loc = "Models/DDQN/FixedComplex/Split/split_diff/0.0/1691557008/best/best_model.ckpt_util"
-		agent.load_util_model(u_model_loc)
-	if not learn_fairness:
-		f_model_loc = "Models/DDQN/FixedComplex/0/"
-		agent.load_fair_model(f_model_loc)
+	if multi_head:
+		agent = MultiHeadDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+			    learn_utility=learn_utility, learn_fairness=learn_fairness, phased_learning=phased_training)
+	else:
+		agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+				learn_utility=learn_utility, learn_fairness=learn_fairness)
+		if not learn_utility:
+			u_model_loc = "Models/DDQN/FixedComplex/Split/split_diff/0.0/1691557008/best/best_model.ckpt_util"
+			agent.load_util_model(u_model_loc)
+		if not learn_fairness:
+			f_model_loc = "Models/DDQN/FixedComplex/0/"
+			agent.load_fair_model(f_model_loc)
 	
 if not training:
 	model_loc = ""
@@ -150,7 +176,8 @@ while i_episode<n_episode:
 
 		#Add to replay buffer
 		#Experience stores - [(s,a), r(s,a,s'), r_f(s,a,s'), s']
-		agent.add_experience(pd_states, rewards, f_rewards, M.get_state())
+		done = steps==max_steps
+		agent.add_experience(pd_states, rewards, f_rewards, M.get_state(), done)
 
 		#Update the policies
 		if steps%T==0 and training:
@@ -190,9 +217,14 @@ while i_episode<n_episode:
 		#update the target network every 20 episodes
 		if i_episode%20==0:
 			agent.update_target_networks()
+		
+		#Switch the phase every phase_length episodes
+		if phased_training and i_episode%phase_length==0:
+			agent.switch_phase()
+			print("Switched phase")
 
-	# Save the model every 1000 episodes
-	if i_episode%1000==0:
+	# Save the model every 500 episodes
+	if i_episode%500==0:
 		os.makedirs(f"Models/DDQN/{mode}/{int(st_time)}/", exist_ok=True)
 		agent.save_model(f"Models/DDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
@@ -252,3 +284,6 @@ while i_episode<n_episode:
 				f.write(f"Past Discount: {past_discount}\n")
 				if not learn_utility:
 					f.write(f"Utility Model: {u_model_loc}\n")
+				f.write(f'Multi Head: {multi_head}\n')
+				f.write(f"Phased Training: {phased_training}\n")
+				f.write(f"Phase Length: {phase_length}\n")

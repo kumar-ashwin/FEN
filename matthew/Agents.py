@@ -316,18 +316,22 @@ class DDQNAgent():
 	def get(self, states):
 		return self.current_net.get(states)
 	
+	def set_beta(self, beta):
+		self.learning_beta = beta
+		
 	def set_active_net(self, net_index):
 		self.current_net_index = net_index
 		self.current_net = self.nets[self.current_net_index]
 		self.current_RB = self.RBs[self.current_net_index]
 
-	def add_experience(self, post_decision_state, rewards, f_rewards, new_state):
+	def add_experience(self, post_decision_state, rewards, f_rewards, new_state, done):
 		# experience = copy.deepcopy([post_decision_state, rewards, f_rewards, new_state])
 		experience = {
 			'pd_state': copy.deepcopy(post_decision_state),
 			'rewards': copy.deepcopy(rewards),
 			'f_rewards': copy.deepcopy(f_rewards),
-			'new_state': copy.deepcopy(new_state)
+			'new_state': copy.deepcopy(new_state),
+			'done': done,
 		}
 		self.current_RB.add(experience)
 	
@@ -339,7 +343,7 @@ class DDQNAgent():
 		losses = []
 		for experience in experiences:
 			#Compute best action
-			pd_state, rewards, f_rewards, new_state = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state']
+			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
 			self.envt.set_state(new_state)
 			succ_obs = self.envt.get_obs()
 			opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
@@ -351,7 +355,10 @@ class DDQNAgent():
 
 			#Perform batched updates
 			states = np.array([pd_state[i] for i in range(n_agents)])
-			target_values = np.array([td_rewards[i] + self.GAMMA * double_target.get(np.array([new_pd_states[i]])) for i in range(n_agents)])
+			if done:
+				target_values = td_rewards
+			else:
+				target_values = np.array([td_rewards[i] + self.GAMMA * double_target.get(np.array([new_pd_states[i]])) for i in range(n_agents)])
 			target_values = target_values.reshape(-1)
 			
 			loss = net.update(states, target_values)
@@ -444,6 +451,9 @@ class SplitDDQNAgent():
 		self.utilAgent.set_active_net(net_index)
 		self.fairAgent.set_active_net(net_index)
 		self.current_RB = self.RB1 if net_index==0 else self.RB2
+
+	def set_beta(self, beta):
+		self.learning_beta = beta
 	
 	def get(self, state, beta=None):
 		if beta is None:
@@ -456,13 +466,14 @@ class SplitDDQNAgent():
 	def get_fairness(self, state):
 		return self.fairAgent.get(state)
 	
-	def add_experience(self, post_decision_state, rewards, f_rewards, new_state):
+	def add_experience(self, post_decision_state, rewards, f_rewards, new_state, done):
 		# experience = copy.deepcopy([post_decision_state, rewards, f_rewards, new_state])
 		experience = {
 			'pd_state': copy.deepcopy(post_decision_state),
 			'rewards': copy.deepcopy(rewards),
 			'f_rewards': copy.deepcopy(f_rewards),
-			'new_state': copy.deepcopy(new_state)
+			'new_state': copy.deepcopy(new_state),
+			'done': done,
 		}
 		self.current_RB.add(experience)
 
@@ -521,4 +532,259 @@ class SplitDDQNAgent():
 			self.utilAgent.save_model(save_path+'_util')
 		if self.learn_fairness:
 			self.fairAgent.save_model(save_path+'_fair')
+
+#Write a multi head class for the above, with 2 heads. One for utility and one for fairness
+class MultiHeadValueNetwork():
+	def __init__(self, num_features, hidden_size, learning_rate=.01, learning_beta=0.0):
+		self.num_features = num_features
+		self.hidden_size = hidden_size
+		self.learning_beta = learning_beta
+		self.tf_graph = tf.Graph()
+
+		with self.tf_graph.as_default():
+			self.session = tf.compat.v1.Session()
+
+			self.observations = tf.compat.v1.placeholder(shape=[None, self.num_features], dtype=tf.float32)
+			self.W = [
+				tf.compat.v1.get_variable("W1", shape=[self.num_features, self.hidden_size]),
+				tf.compat.v1.get_variable("W2", shape=[self.hidden_size, self.hidden_size]),
+				tf.compat.v1.get_variable("W3fair", shape=[self.hidden_size, 1]),
+				tf.compat.v1.get_variable("W3util", shape=[self.hidden_size, 1])
+			]
+			self.layer_1 = tf.nn.relu(tf.matmul(self.observations, self.W[0]))
+			self.layer_2 = tf.nn.relu(tf.matmul(self.layer_1, self.W[1]))
+			self.output_fair = tf.reshape(tf.matmul(self.layer_2, self.W[2]), [-1])
+			self.output_util = tf.reshape(tf.matmul(self.layer_2, self.W[3]), [-1])
+
+			self.rollout_fair = tf.compat.v1.placeholder(shape=[None], dtype=tf.float32)
+			self.rollout_util = tf.compat.v1.placeholder(shape=[None], dtype=tf.float32)
+
+			#Huber loss
+			self.loss_fair = tf.compat.v1.losses.huber_loss(self.output_fair, self.rollout_fair)
+			self.loss_util = tf.compat.v1.losses.huber_loss(self.output_util, self.rollout_util)
+
+			self.grad_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+			self.minimize_fair = self.grad_optimizer.minimize(self.loss_fair)
+			self.minimize_util = self.grad_optimizer.minimize(self.loss_util)
+
+			self.saver = tf.compat.v1.train.Saver(self.W,max_to_keep=3000)
+
+			init = tf.compat.v1.global_variables_initializer()
+			self.session.run(init)
+
+	def get(self, states):
+		value_fair = self.session.run(self.output_fair, feed_dict={self.observations: states})
+		value_util = self.session.run(self.output_util, feed_dict={self.observations: states})
+		return value_util + value_fair * self.learning_beta
+	
+	def get_util(self, states):
+		value_util = self.session.run(self.output_util, feed_dict={self.observations: states})
+		return value_util
+	
+	def get_fair(self, states):
+		value_fair = self.session.run(self.output_fair, feed_dict={self.observations: states})
+		return value_fair
+	
+	def update(self, states, discounted_rewards_fair, discounted_rewards_util):
+		_, loss_fair = self.session.run([self.minimize_fair, self.loss_fair], feed_dict={
+			self.observations: states, self.rollout_fair: discounted_rewards_fair
+		})
+		_, loss_util = self.session.run([self.minimize_util, self.loss_util], feed_dict={
+			self.observations: states, self.rollout_util: discounted_rewards_util
+		})
+
+		return loss_fair, loss_util
+	
+	def update_fair_head(self, states, discounted_rewards_fair):
+		_, loss_fair = self.session.run([self.minimize_fair, self.loss_fair], feed_dict={
+			self.observations: states, self.rollout_fair: discounted_rewards_fair
+		})
+
+		return loss_fair
+	
+	def update_util_head(self, states, discounted_rewards_util):
+		_, loss_util = self.session.run([self.minimize_util, self.loss_util], feed_dict={
+			self.observations: states, self.rollout_util: discounted_rewards_util
+		})
+
+		return loss_util
+	
+	def save_model(self, save_path):
+		with self.tf_graph.as_default():
+			self.saver.save(self.session, save_path)
+
+	def load_model(self, save_path):
+		with self.tf_graph.as_default():
+			self.saver.restore(self.session, save_path)
+
+	def set_weights(self, weights):
+		with self.tf_graph.as_default():
+			for i in range(len(self.W)):
+				self.W[i].load(weights[i], self.session)
+
+	def get_weights(self):
+		with self.tf_graph.as_default():
+			weights = self.session.run(self.W)
+		return weights
+	
+#Write a SplitDDQN agent class for the above
+class MultiHeadDDQNAgent():
+	def __init__(self, 
+	      envt,
+	      num_features, 
+		  hidden_size=256, 
+		  learning_rate=0.0001, 
+		  replay_buffer_size=100000,
+		  GAMMA=0.99,
+		  learning_beta=0.0,
+		  learn_utility=True,
+		  learn_fairness=True,
+		  phased_learning=True, #If true, will alternate between learning utility and fairness
+		  ):
+		self.envt = envt
+		self.num_features = num_features
+		self.hidden_size = hidden_size
+		self.learning_rate = learning_rate
+		self.replay_buffer_size = replay_buffer_size
+		self.GAMMA = GAMMA
+		self.learning_beta = learning_beta
+		self.learn_utility = learn_utility
+		self.learn_fairness = learn_fairness
+
+		self.VF1 = MultiHeadValueNetwork(self.num_features, self.hidden_size, self.learning_rate, self.learning_beta)
+		self.VF2 = MultiHeadValueNetwork(self.num_features, self.hidden_size, self.learning_rate, self.learning_beta)
+		self.VF1_target = MultiHeadValueNetwork(self.num_features, self.hidden_size, self.learning_rate, self.learning_beta)
+		self.VF2_target = MultiHeadValueNetwork(self.num_features, self.hidden_size, self.learning_rate, self.learning_beta)
+
+		self.RB1 = ReplayBuffer(self.replay_buffer_size)
+		self.RB2 = ReplayBuffer(self.replay_buffer_size)
+
+		self.nets = [self.VF1, self.VF2]
+		self.RBs = [self.RB1, self.RB2]
+		self.current_net_index = 0
+		self.current_net = self.VF1
+		self.current_RB = self.RB1
+
+		self.phased_learning = phased_learning
+		if phased_learning:
+			self.current_phase = 0 # 0 for utility, 1 for fairness
+			self.learn_fairness = False
+			self.learn_utility = True
+			
+	def switch_phase(self):
+		if self.phased_learning:
+			self.current_phase = (self.current_phase+1)%2
+			self.learn_fairness = not self.learn_fairness
+			self.learn_utility = not self.learn_utility
+		else:
+			print("Phased learning is not enabled")
+
+	def set_active_net(self, index):
+		self.current_net_index = index
+		self.current_net = self.nets[index]
+		self.current_RB = self.RBs[index]
+	
+	def get(self, states):		
+		return self.current_net.get(states)
+	
+	def get_utility(self, states):
+		value_util = self.current_net.get_util(states)
+		return value_util
+	
+	def get_fairness(self, states):
+		value_fair = self.current_net.get_fair(states)
+		return value_fair
+	
+	def set_beta(self, beta):
+		self.learning_beta = beta
+		self.VF1.learning_beta = beta
+		self.VF2.learning_beta = beta
+	
+	def add_experience(self, post_decision_state, rewards, f_rewards, new_state, done):
+		# experience = copy.deepcopy([post_decision_state, rewards, f_rewards, new_state])
+		experience = {
+			'pd_state': copy.deepcopy(post_decision_state),
+			'rewards': copy.deepcopy(rewards),
+			'f_rewards': copy.deepcopy(f_rewards),
+			'new_state': copy.deepcopy(new_state),
+			'done': done,
+		}
+		self.current_RB.add(experience)
+
+	def _update(self, experiences, net, target_net, double_target):
+		#Abstracted function to handle updates for both networks
+		# Note: SI beta not supported, always steps with beta=0
+		n_agents = self.envt.n_agents
+		n_resources = self.envt.n_resources
+		f_losses = []
+		u_losses = []
+		for experience in experiences:
+			#Compute best action
+			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
+			self.envt.set_state(new_state)
+			succ_obs = self.envt.get_obs()
+			opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
+			new_pd_states = self.envt.get_post_decision_states(succ_obs, opt_actions)
+
+			td_rewards_fair = np.array(f_rewards)
+
+			td_rewards_util = np.array(rewards)
+
+			#Perform batched updates
+			states = np.array([pd_state[i] for i in range(n_agents)])
+			if self.learn_fairness:
+				if done:
+					target_values_fair = td_rewards_fair
+				else:
+					target_values_fair = np.array([td_rewards_fair[i] + self.GAMMA * double_target.get_fair(np.array([new_pd_states[i]])) for i in range(n_agents)])
+				target_values_fair = target_values_fair.reshape(-1)
+				f_loss = net.update_fair_head(states, target_values_fair)
+				f_losses.append(f_loss)
+			if self.learn_utility:
+				if done:
+					target_values_util = td_rewards_util
+				else:
+					target_values_util = np.array([td_rewards_util[i] + self.GAMMA * double_target.get_util(np.array([new_pd_states[i]])) for i in range(n_agents)])
+				target_values_util = target_values_util.reshape(-1)
+				u_loss = net.update_util_head(states, target_values_util)
+				u_losses.append(u_loss)
+
+		return f_losses, u_losses
+
+	def update_from_experiences(self, experiences1, experiences2):
+		# For use from an external source
+		self.envt.reset()
+		f_losses1, u_losses1 = self._update(experiences1, self.VF1, self.VF1_target, self.VF2_target)
+		f_losses2, u_losses2 = self._update(experiences2, self.VF2, self.VF2_target, self.VF1_target)
+		return f_losses1, f_losses2, u_losses1, u_losses2
+
+	
+	def update(self, num_samples, num_min_samples=100000):
+		min_RB_size = num_min_samples//self.envt.n_agents
+		loss_logs = {'util': [], 'fair': []}
+		if self.RB1.size < min_RB_size or self.RB2.size < min_RB_size:
+			return	loss_logs
 		
+		self.envt.reset()
+		experiences1 = self.RB1.sample(num_samples)
+		experiences2 = self.RB2.sample(num_samples)
+
+		f_losses1, f_losses2, u_losses1, u_losses2 = self.update_from_experiences(experiences1, experiences2)
+		if self.learn_utility:
+			loss_logs['util'].append(u_losses1)
+			loss_logs['util'].append(u_losses2)
+		if self.learn_fairness:
+			loss_logs['fair'].append(f_losses1)
+			loss_logs['fair'].append(f_losses2)
+	
+		return loss_logs
+	
+	def update_target_networks(self):
+		self.VF1_target.set_weights(self.VF1.get_weights())
+		self.VF2_target.set_weights(self.VF2.get_weights())
+
+	def save_model(self, save_path):
+		self.VF1.save_model(save_path+'_multihead')
+
+	def load_model(self, save_path):
+		self.VF1.load_model(save_path+'_multihead')

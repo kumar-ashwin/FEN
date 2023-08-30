@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
 
-from Agents import SimpleValueNetwork, ValueNetwork, ReplayBuffer, DDQNAgent, SplitDDQNAgent
+from Agents import DDQNAgent, SplitDDQNAgent, MultiHeadDDQNAgent
 from matching import compute_best_actions
 from utils import SI_reward, variance_penalty, get_fairness_from_su, EpsilonDecay, get_metrics_from_rewards, add_epi_metrics_to_logs, add_metric_to_logs
 from Environment import MatthewEnvt
@@ -35,6 +35,9 @@ logging = False
 split = True
 learn_fairness = True
 learn_utility = True
+multi_head = True
+
+phased_training = False
 
 # if not split:
 # 	print("Unsupported")
@@ -50,7 +53,20 @@ max_size = 0.5
 mode = "Reallocate" if reallocate else "Fixed"
 mode += "Central" if central_rewards else ""
 mode += "" if simple_obs else "Complex"
-mode+= "/Split/" if split else "/Joint/"
+mode+= "/Test/" #Only for testing new features
+network_type = ""
+if multi_head:
+	network_type = "/MultiHead"
+elif split and not multi_head: 
+	network_type = "/Split"
+elif not split:
+	network_type = "/Joint"
+mode+= network_type
+mode += "Phased" if phased_training else ""
+if split:
+	mode += "NoUtility" if not learn_utility else ""
+	mode += "NoFairness" if not learn_fairness else ""
+mode += "/"
 mode += f"{fairness_type}"
 
 summary_writer = None
@@ -87,7 +103,11 @@ learning_rate = 0.00003
 
 agent = DDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta)
 if split:
-	agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+	if multi_head:
+		agent = MultiHeadDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+			    learn_utility=learn_utility, learn_fairness=learn_fairness, phased_learning=phased_training)
+	else:
+		agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
 		learn_utility=learn_utility, learn_fairness=learn_fairness)
 
 learning_beta=(None, None) #Just so this isn't accidentally used
@@ -96,6 +116,7 @@ fairness_models = {}
 utility_models = {}
 final_model = False
 # fairness_model_folder = 'Models/DoubleDQN/FixedComplex_split_diff'
+# fairness_model_folder = 'Models/DDQN/FixedComplex/Test/MultiHead/split_diff'
 #Open directory, get all folders, sort by beta, load models
 for folder in os.listdir(fairness_model_folder):
 	beta = float(folder)
@@ -115,10 +136,10 @@ for folder in os.listdir(fairness_model_folder):
 					break
 		if best_ep<1000:
 			model_loc = fairness_model_folder+"/"+folder+"/"+m+"/model_2000.ckpt"
-		# print(best_ep, beta)
+		print(best_ep, beta, model_loc)
 
 	fairness_models[beta] = model_loc
-	if split:
+	if split and not multi_head:
 		fairness_models[beta] = model_loc+"_fair"
 		if learn_utility:
 			utility_models[beta] = model_loc+"_util"
@@ -130,19 +151,23 @@ fairness_models = {k: v for k, v in sorted(fairness_models.items(), key=lambda i
 utility_models = {k: v for k, v in sorted(utility_models.items(), key=lambda item: item)}
 
 sp = "Split" if split else ""
+if split and multi_head:
+	sp = "MultiHead"
 both = "_both" if learn_utility and learn_fairness else ""
-savename = f"Results/Base/{sp}DDQN_{fairness_type}{both}_bestm_{n_episode}.csv"
+final = "_5000m" if final_model else "_bestm"
+savename = f"Results/Base/{sp}DDQN_{fairness_type}{both}{final}_{n_episode}.csv"
 
 
 results = pd.DataFrame(columns=['utility', 'fairness', 'min_utility', 'objective', 'variance', 'beta'])
 for fairness_beta, model_loc in fairness_models.items():
-	if split:
+	if split and not multi_head:
 		agent.load_util_model(utility_models[fairness_beta])
 		agent.load_fair_model(model_loc)
 	else:
 		agent.load_model(model_loc)
 	base_learning_beta = fairness_beta
-	agent.learning_beta = base_learning_beta
+	# agent.learning_beta = base_learning_beta
+	agent.set_beta(base_learning_beta)
 	run_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 
 	i_episode = 0
