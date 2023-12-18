@@ -31,6 +31,12 @@ class EpsilonDecay():
 			self.current = eps
 		return self.current
 
+
+def get_distance(a,b):
+	#Get distance between two points
+	return np.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2)
+
+
 def SI_reward(utils, direction='both'):
 	#normalize
 	avg = np.mean(utils)

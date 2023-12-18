@@ -2,7 +2,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 import copy
-from Environment import get_distance
+from utils import get_distance
 
 def get_assignment(Qvalues):
 	n_agents = len(Qvalues)

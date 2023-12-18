@@ -173,13 +173,19 @@ for beta in betas:
 	max_utilities.append(avg_max_utility)
 
 	# #plotting
-	plt.plot(utilities, fairness, color = 'green', marker = 'o')
+	# plt.plot(utilities, fairness, color = 'green', marker = 'o')
 	# plt.ion()
 	# plt.pause(0.4)
 	# plt.close()
 #Save the results
+plt.plot(utilities, fairness, color = 'green', marker = 'o')
 plt.xlabel('Average Utility')
 plt.ylabel('Fairness')
 plt.title('Fairness vs Utility')
-plt.savefig('Fairness_vs_Utility.png')
+plt.savefig('Fairness_vs_Utility_2.png')
 
+#save the results as a csv file
+data = {'Beta': betas, 'Average Utility': utilities, 'Average Fairness': fairness, 'Average Social Welfare': social_welfare, 'Average CofVar': CofVar, 'Average Min Utility': min_utilities, 'Average Max Utility': max_utilities}
+import pandas as pd
+df = pd.DataFrame(data)
+df.to_csv('Results_2.csv')

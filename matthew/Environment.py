@@ -9,6 +9,28 @@ def get_distance(a,b):
 	return np.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2)
 
 #TODO: Wrap this in a class
+class MACEnvt:
+	'''
+	Meta class for multi-agent central decision-maker environments
+	'''
+	def __init__(self):
+		pass
+	def reset(self):
+		pass
+	def step(self, actions):
+		# actions[i] is the action taken by agent i
+		pass
+	def get_state(self):
+		pass
+	def set_state(self, state):
+		pass
+	def get_obs(self):
+		pass
+	def render(self):
+		pass
+	def get_post_decision_states(self, obs, actions):
+		pass
+
 class MatthewEnvt:
 	def __init__(self, 
 	      n_agents, 
@@ -314,3 +336,251 @@ class MatthewEnvt:
 		plt.ion()
 		plt.pause(0.1)
 		plt.close()
+
+class JobSchedulingEnvt:
+	'''
+	Many workers that desire to work on a job. As long as worker occupies the job's location, they get a reward
+	This is difficult to solve as a central agent. What does an allocation mean? How do other agents know how to get out of the way?
+
+	Possible solution: have actions represent each grid location. Each agent can move to any location.
+	Then, move agents to locations based on their past utility.
+	'''
+	def __init__(self, 
+	      n_agents, 
+		  gridsize=5,
+		  reallocate=True, 
+		  simple_obs=False, 
+		  warm_start=0,
+		  past_discount=0.995,
+		  ):
+		self.n_agents = n_agents
+		self.gridsize = gridsize
+		
+		self.warm_start = warm_start
+		self.past_discount = past_discount
+
+		self.reset()
+
+		self.reallocate = reallocate
+		self.simple_obs = simple_obs
+	
+	def reset(self):
+		# The grid is a 2D array of size gridsize x gridsize
+		# Each agent is assigned a random location on the grid
+		# Empty grid locations are 0
+		# Agent locations are 1,2,3,4,5...
+		# Job location is always fixed, so not tracked on the grid
+
+		self.grid = np.zeros((self.gridsize, self.gridsize))
+		ant = []
+		#Random start locations
+		for i in range(self.n_agents):
+			loc = np.random.randint(0,self.gridsize,2)
+			while self.grid[loc[0],loc[1]]!=0:
+				loc = np.random.randint(0,self.gridsize,2)
+			ant.append(np.random.randint(0,self.gridsize,2))
+			self.grid[ant[i][0],ant[i][1]]=i+1
+		ant = np.array(ant)
+
+		self.job = np.random.randint(0,self.gridsize,2)
+		self.job_reward = 1
+
+		self.ant = ant
+		self.targets = [None]*self.n_agents
+		self.su = np.zeros(self.n_agents)
+
+		w = 5 #width of the warm start distribution
+		self.discounted_su = np.array([
+			self.warm_start + np.random.rand()*w - w/2
+			for _ in range(self.n_agents)])
+
+	def move(self, i, dir, update_state=True):
+		#Move agent i in direction
+		#dir is one of [stay, up, down, left, right]
+		dir_map = {
+			0: [0,0],
+			1: [0,1],
+			2: [0,-1],
+			3: [-1,0],
+			4: [1,0]
+		}
+		delta_x = dir_map[dir][0]
+		delta_y = dir_map[dir][1]
+		target_loc = [self.ant[i][0] + delta_x, self.ant[i][1] + delta_y]
+		
+		new_x = self.ant[i][0] + dir_map[dir][0]
+		new_y = self.ant[i][1] + dir_map[dir][1]
+
+		x,y = self.ant[i]
+		# Simple bounds checking. Later on, could use MAPF to make it smarter and allow simultaneous moves
+		if 0<=new_x<self.gridsize and 0<=new_y<self.gridsize:
+			if self.grid[new_x, new_y]==0:
+				x, y = new_x, new_y
+				if update_state:
+					self.grid[self.ant[i][0],self.ant[i][1]]=0
+					self.ant[i][0] = new_x
+					self.ant[i][1] = new_y
+					self.grid[new_x, new_y]=i+1
+		
+		return x,y
+		
+	# Each action is a mapping of agent i to a grid location
+	# OR
+	# Each action is one of [stay, up, down, left, right]
+	def step(self, actions):
+		# actions[i] is the action taken by agent i
+		# Doing 5 available actions first. Then will try to generalize to grid locations
+		re = [0]*self.n_agents  #rewards. If an agent is on the job, get reward of 1
+		for i in range(self.n_agents):
+			if actions[i]!=-1:
+				self.move(i, actions[i])
+
+			#Check if agent is on the job
+			if self.ant[i][0]==self.job[0] and self.ant[i][1]==self.job[1]:
+				re[i]=self.job_reward
+	
+		self.su+=np.array(re)
+		#Update the discounted utilities
+		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
+
+		return re
+
+	def get_state(self):
+		return self.ant, self.job, self.su, self.discounted_su
+		
+	def set_state(self, state):
+		self.ant, self.job, self.su, self.discounted_su = state
+
+	def get_obs(self):
+		#Gets the state of the environment (Vector of each agent states)
+		state = []
+		agents = []
+		for i in range(self.n_agents):
+			h={}
+			h['loc'] = [self.ant[i][0], self.ant[i][1]]
+			h['util'] = self.su[i]
+			h['relative_util'] = self.discounted_su[i]/np.mean(self.discounted_su) - 1
+
+			#Get info about other agents
+			others = []
+			# append locations of all other agents
+			for j in range(self.n_agents):
+				if j!=i:
+					others.append([
+						self.ant[j][0],self.ant[j][1],
+						self.su[j],
+					])
+			#flatten
+			others = [feature for other in others for feature in other]
+			h['other_agents'] = others
+
+			# alt: get the 3x3 grid around the agent
+			h['grid'] = []
+			for x in range(self.ant[i][0]-1, self.ant[i][0]+2):
+				for y in range(self.ant[i][1]-1, self.ant[i][1]+2):
+					if 0<=x<self.gridsize and 0<=y<self.gridsize:
+						h['grid'].append(self.grid[x,y])
+					else:
+						h['grid'].append(-1)
+			
+			h['job'] = copy.deepcopy(self.job)
+
+			#feats
+			feats = []
+			flist = ['loc','util','relative_util', 'other_agents', 'grid', 'job']
+			flist = ['loc', 'grid', 'job']
+			if self.simple_obs:
+				flist = ['loc','util','relative_util', 'grid', 'job']
+			
+			for f in flist:
+				if f=='util' or f=='relative_util':
+					feats.append(h[f])
+				else:
+					feats.extend(h[f])
+
+			agents.append(feats)
+
+		state.append(agents)
+		state.append(copy.deepcopy(self.job))
+
+		return state
+
+	def render(self):
+		for i in range(self.n_agents):
+			plt.scatter(self.ant[i][0], self.ant[i][1], color = 'blue')
+			# Add text to show scores
+			plt.text(self.ant[i][0], self.ant[i][1], str(self.su[i]))
+		plt.scatter(self.job[0], self.job[1], color = 'red', marker='x')
+		plt.axis("off")
+		plt.axis("equal")
+		# Make gridlines
+		for i in range(self.gridsize+2):
+			# Horizontal lines
+			l = i - 0.5
+			plt.plot([-0.5,self.gridsize+0.5],[l,l], color='black')
+			# Vertical lines
+			plt.plot([l,l],[-0.5,self.gridsize+0.5], color='black')
+			
+			
+		plt.xlim(-1 , self.gridsize+1)
+		plt.ylim(-1 , self.gridsize+1)
+		plt.ion()
+		plt.pause(0.01)
+		plt.close()
+	
+
+	def get_post_decision_state_agent(self, state, action, ind):
+		# For a single agent
+		s_i = copy.deepcopy(state)
+		if action!=-1:
+			new_x, new_y = self.move(ind, action, update_state=False)
+			#apply action
+			s_i[0] = new_x
+			s_i[1] = new_y
+		return s_i
+	
+	def get_post_decision_states(self, obs, actions):
+		states = []
+		for i in range(self.n_agents):
+			s_i = self.get_post_decision_state_agent(obs[0][i], actions[i], i)
+			states.append(s_i)
+		return states
+
+	def compute_best_actions(self, model, obs, targets, n_agents, n_actions, su, epsilon=0.0, beta=0.0, direction='both'):
+
+		Qvals = [[-1000000 for _ in range(n_actions)] for _ in range(n_agents)]
+
+		#Get a random action with probability epsilon
+		if np.random.rand()<epsilon:
+			Qvals = [[np.random.rand()*max(2-ind,1) for ind in range(n_actions)] for _ in range(n_agents)] #Increase importance of doing nothing
+		else:
+			# First action is to do nothing.
+			resource = copy.deepcopy(obs[1])
+			for i in range(n_agents):
+				h = copy.deepcopy(obs[0][i])
+				for act in range(n_actions):
+					h_post = self.get_post_decision_state_agent(h, act, i)
+					Qvals[i][act] = float(model.get(np.array([h])))
+						
+				#Fairness post processing
+				if beta is not 0.0:
+					# if direction=='both':
+					mult = (su[i] - np.mean(su))/1000
+					if direction=='adv':
+						mult = min(0,(su[i] - np.mean(su)))/1000
+					elif direction=='dis':
+						mult = max(0,(su[i] - np.mean(su)))/1000
+					# mult = (su[i] - np.mean(su))/1000
+					for j in range(len(Qvals[i])):
+						if j==0:
+							Qvals[i][j] = Qvals[i][j] + beta * mult
+						else:
+							Qvals[i][j] = Qvals[i][j] - beta * mult
+		
+		# for i in range(n_agents):
+		# 	print(Qvals[i])
+		#For each agent, select the best greedy action for now
+		actions = [np.argmax(Qvals[i]) for i in range(n_agents)]
+		
+		# print(actions)
+		return actions
