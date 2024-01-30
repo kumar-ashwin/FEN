@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 import matplotlib.pyplot as plt
+from matching import get_assignment
 
 np.random.seed(0)
 
@@ -8,7 +9,6 @@ def get_distance(a,b):
 	#Get distance between two points
 	return np.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2)
 
-#TODO: Wrap this in a class
 class MACEnvt:
 	'''
 	Meta class for multi-agent central decision-maker environments
@@ -29,6 +29,9 @@ class MACEnvt:
 	def render(self):
 		pass
 	def get_post_decision_states(self, obs, actions):
+		pass
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both'):
+		# targets, n_agents, n_resources, su, should be extracted from envt
 		pass
 
 class MatthewEnvt:
@@ -337,6 +340,64 @@ class MatthewEnvt:
 		plt.pause(0.1)
 		plt.close()
 
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both'):
+		# targets, n_agents, n_resources, su, should be extracted from envt
+		targets, n_agents, n_resources, su = envt.targets, envt.n_agents, envt.n_resources, envt.su
+
+		Qvals = [[-1000000 for _ in range(n_resources+1)] for _ in range(n_agents)]
+		occupied_resources = set([targets[j][0] for j in range(n_agents) if targets[j] is not None])
+
+		#Get a random action with probability epsilon
+		if np.random.rand()<epsilon:
+			Qvals = [[np.random.rand()*max(2-ind,1) for ind in range(n_resources+1)] for _ in range(n_agents)] #Increase importance of doing nothing
+			#occupied resources cant be taken, so set their Q values to -1000000
+			Qvals = [[-1000000 if j-1 in occupied_resources else Qvals[i][j] for j in range(n_resources+1)] for i in range(n_agents)]
+		else:
+			#First action is to do nothing. This is the default action.
+			#Action indexing starts at -1. Shift by 1 to get the correct index
+			resource = copy.deepcopy(obs[1])
+			for i in range(n_agents):
+				h = copy.deepcopy(obs[0][i])
+				ant_loc = [h[0],h[1]]
+				ant_speed = h[2]
+
+				Qvals[i][0] = float(model.get(np.array([h])))
+
+				if targets[i] is None:
+					#If the agent can pick another action, get Q values for all actions
+					for j in range(n_resources):
+						if j not in occupied_resources:
+							h = copy.deepcopy(obs[0][i])
+							h[-3] = resource[j][0]
+							h[-2] = resource[j][1]
+							h[-1] = get_distance(ant_loc,resource[j])/ant_speed
+							Qvals[i][j+1] = float(model.get(np.array([h])))
+						
+				#Fairness post processing
+				if beta is not 0.0:
+					# if direction=='both':
+					mult = (su[i] - np.mean(su))/1000
+					if direction=='adv':
+						mult = min(0,(su[i] - np.mean(su)))/1000
+					elif direction=='dis':
+						mult = max(0,(su[i] - np.mean(su)))/1000
+					# mult = (su[i] - np.mean(su))/1000
+					for j in range(len(Qvals[i])):
+						if j==0:
+							Qvals[i][j] = Qvals[i][j] + beta * mult
+						else:
+							Qvals[i][j] = Qvals[i][j] - beta * mult
+		
+		# for i in range(n_agents):
+		# 	print(Qvals[i])
+		#For each agent, select the action using the central agent given Q values
+		actions = get_assignment(Qvals)
+		#shift actions by 1 to get the correct index
+		actions = [a-1 for a in actions]
+		# print(actions)
+		return actions
+		pass
+
 class JobSchedulingEnvt:
 	'''
 	Many workers that desire to work on a job. As long as worker occupies the job's location, they get a reward
@@ -394,9 +455,8 @@ class JobSchedulingEnvt:
 			self.warm_start + np.random.rand()*w - w/2
 			for _ in range(self.n_agents)])
 
-	def move(self, i, dir, update_state=True):
-		#Move agent i in direction
-		#dir is one of [stay, up, down, left, right]
+	def pre_move(self, ant, dir):
+		x, y = ant
 		dir_map = {
 			0: [0,0],
 			1: [0,1],
@@ -406,23 +466,25 @@ class JobSchedulingEnvt:
 		}
 		delta_x = dir_map[dir][0]
 		delta_y = dir_map[dir][1]
-		target_loc = [self.ant[i][0] + delta_x, self.ant[i][1] + delta_y]
+		new_x = x + delta_x
+		new_y = y + delta_y
+		return new_x, new_y
 		
-		new_x = self.ant[i][0] + dir_map[dir][0]
-		new_y = self.ant[i][1] + dir_map[dir][1]
+	
+	def move(self, ant, dir):
+		#Move agent i in direction
+		#dir is one of [stay, up, down, left, right]
+		illegal=False
+		x,y = ant
+		new_x, new_y = self.pre_move(ant,dir)
 
-		x,y = self.ant[i]
 		# Simple bounds checking. Later on, could use MAPF to make it smarter and allow simultaneous moves
 		if 0<=new_x<self.gridsize and 0<=new_y<self.gridsize:
 			if self.grid[new_x, new_y]==0:
 				x, y = new_x, new_y
-				if update_state:
-					self.grid[self.ant[i][0],self.ant[i][1]]=0
-					self.ant[i][0] = new_x
-					self.ant[i][1] = new_y
-					self.grid[new_x, new_y]=i+1
-		
-		return x,y
+		else:
+			illegal=True
+		return x,y, illegal
 		
 	# Each action is a mapping of agent i to a grid location
 	# OR
@@ -430,18 +492,34 @@ class JobSchedulingEnvt:
 	def step(self, actions):
 		# actions[i] is the action taken by agent i
 		# Doing 5 available actions first. Then will try to generalize to grid locations
+		reset_job = False
 		re = [0]*self.n_agents  #rewards. If an agent is on the job, get reward of 1
+		penl = [0]*self.n_agents  #penalties. If an agent makes an illegal move, get penalty
 		for i in range(self.n_agents):
 			if actions[i]!=-1:
-				self.move(i, actions[i])
+				new_x, new_y, illegal = self.move(self.ant[i], actions[i])			
+				self.grid[self.ant[i][0],self.ant[i][1]]=0
+				self.ant[i][0] = new_x
+				self.ant[i][1] = new_y
+				self.grid[new_x, new_y]=i+1
+	
 
 			#Check if agent is on the job
 			if self.ant[i][0]==self.job[0] and self.ant[i][1]==self.job[1]:
 				re[i]=self.job_reward
-	
+				# reset_job = True
+			if illegal:
+				penl[i] += -10000 #Large penalty for illegal move
+				
+		# if reset_job:
+		# 	self.job = np.random.randint(0,self.gridsize,2)	
 		self.su+=np.array(re)
 		#Update the discounted utilities
 		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
+
+		# Add penalties for vf reward
+		for i in range(self.n_agents):
+			re[i] += penl[i]
 
 		return re
 
@@ -484,11 +562,19 @@ class JobSchedulingEnvt:
 						h['grid'].append(-1)
 			
 			h['job'] = copy.deepcopy(self.job)
+			#relative job location
+			h['relative_job'] = [self.ant[i][0]-self.job[0], self.ant[i][1]-self.job[1]]
+			# Relative job location does not work, would need to update it in the post_decision state as well
 
 			#feats
 			feats = []
 			flist = ['loc','util','relative_util', 'other_agents', 'grid', 'job']
-			flist = ['loc', 'grid', 'job']
+			flist = ['loc', 'relative_util', 'grid', 'job']
+			flist = ['loc', 'job']
+			flist = ['relative_job', 'grid']
+			flist = ['relative_job', 'grid', 'relative_util'] # This seems to work with lr=0.0003, hidden_size=20
+			# flist = ['relative_job', 'relative_job', 'grid', 'relative_util'] # second relative job because first is overwritten by post-decision loc: Probably not needed?
+			# ^Nope. Worse. Even with 40 features
 			if self.simple_obs:
 				flist = ['loc','util','relative_util', 'grid', 'job']
 			
@@ -505,7 +591,7 @@ class JobSchedulingEnvt:
 
 		return state
 
-	def render(self):
+	def render(self, VF=None):
 		for i in range(self.n_agents):
 			plt.scatter(self.ant[i][0], self.ant[i][1], color = 'blue')
 			# Add text to show scores
@@ -514,16 +600,28 @@ class JobSchedulingEnvt:
 		plt.axis("off")
 		plt.axis("equal")
 		# Make gridlines
-		for i in range(self.gridsize+2):
+		for i in range(self.gridsize+1):
 			# Horizontal lines
 			l = i - 0.5
-			plt.plot([-0.5,self.gridsize+0.5],[l,l], color='black')
+			plt.plot([-0.5,self.gridsize-0.5],[l,l], color='black')
 			# Vertical lines
-			plt.plot([l,l],[-0.5,self.gridsize+0.5], color='black')
+			plt.plot([l,l],[-0.5,self.gridsize-0.5], color='black')
+		
+		if VF is not None:
+			# value_grid = self.get_value_grid(VF)
+			# for i in range(self.gridsize):
+			# 	for j in range(self.gridsize):
+			# 		plt.text(i,j, str(round(value_grid[i,j],2)))
+			
+			post_dec_value_grid = self.get_post_dec_grid(VF)
+			for i in range(self.gridsize*2+1):
+				for j in range(self.gridsize*2+1):
+					if (i+j)%2!=0:
+						plt.text(i/2-0.5,j/2-0.5, str(round(post_dec_value_grid[i,j],2)), fontsize=8)
 			
 			
-		plt.xlim(-1 , self.gridsize+1)
-		plt.ylim(-1 , self.gridsize+1)
+		plt.xlim(-1 , self.gridsize)
+		plt.ylim(-1 , self.gridsize)
 		plt.ion()
 		plt.pause(0.01)
 		plt.close()
@@ -533,11 +631,19 @@ class JobSchedulingEnvt:
 		# For a single agent
 		s_i = copy.deepcopy(state)
 		if action!=-1:
-			new_x, new_y = self.move(ind, action, update_state=False)
+			x, y = s_i[:2]
+			new_x, new_y = self.pre_move(s_i[:2], action)
 			#apply action
-			s_i[0] = new_x
-			s_i[1] = new_y
+			s_i[0] = (new_x + x)/2
+			s_i[1] = (new_y + y)/2  #Show intent to move through a half step
 		return s_i
+
+	# relative cal: ant_loc - job_loc
+	# ant     job    relative
+	# 0,0     1,4	-1,-4
+	#After move 1,1
+	# 1,1     1,4	0,-3
+	# So, the move can directly be applied to the relative location
 	
 	def get_post_decision_states(self, obs, actions):
 		states = []
@@ -546,13 +652,20 @@ class JobSchedulingEnvt:
 			states.append(s_i)
 		return states
 
-	def compute_best_actions(self, model, obs, targets, n_agents, n_actions, su, epsilon=0.0, beta=0.0, direction='both'):
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both'):
+		# envt is an environment class object with the state set to desired state
+		# targets, n_agents, n_actions, su
+		n_agents = envt.n_agents
+		n_actions = 5
+		su = envt.su
 
 		Qvals = [[-1000000 for _ in range(n_actions)] for _ in range(n_agents)]
 
 		#Get a random action with probability epsilon
 		if np.random.rand()<epsilon:
-			Qvals = [[np.random.rand()*max(2-ind,1) for ind in range(n_actions)] for _ in range(n_agents)] #Increase importance of doing nothing
+			# Qvals = [[np.random.rand()*max(2-ind,1) for ind in range(n_actions)] for _ in range(n_agents)] #Increase importance of doing nothing
+			actions = [np.random.randint(0,n_actions) for _ in range(n_agents)]
+			return actions
 		else:
 			# First action is to do nothing.
 			resource = copy.deepcopy(obs[1])
@@ -560,10 +673,21 @@ class JobSchedulingEnvt:
 				h = copy.deepcopy(obs[0][i])
 				for act in range(n_actions):
 					h_post = self.get_post_decision_state_agent(h, act, i)
-					Qvals[i][act] = float(model.get(np.array([h])))
+					# if act!=0:
+					# 	if h_post[0]==h[0] and h_post[1]==h[1]:
+					# 		#If the agent didn't move, set the Q value to -1000000
+					# 		Qvals[i][act] = -1000000
+						
+					Qvals[i][act] = float(model.get(np.array([h_post])))
+
+					# Custom calculation, naive greedy vf
+					# pos_ant = np.array(h_post[:2])
+					# pos_resource = np.array(h_post[-2:])
+					# Qvals[i][act] = 5 - get_distance(pos_ant, pos_resource)
+					
 						
 				#Fairness post processing
-				if beta is not 0.0:
+				if beta!=0.0:
 					# if direction=='both':
 					mult = (su[i] - np.mean(su))/1000
 					if direction=='adv':
@@ -578,9 +702,59 @@ class JobSchedulingEnvt:
 							Qvals[i][j] = Qvals[i][j] - beta * mult
 		
 		# for i in range(n_agents):
-		# 	print(Qvals[i])
+		# 	print("Qvals", i, Qvals[i])
 		#For each agent, select the best greedy action for now
 		actions = [np.argmax(Qvals[i]) for i in range(n_agents)]
 		
 		# print(actions)
 		return actions
+	
+	def get_value_grid(self, VF):
+		# Return a grid of values for each grid location, calling VF.get for each location
+		# VF is a value function class object
+		gridsize = self.gridsize
+		grid = np.zeros((gridsize, gridsize))
+		obs = self.get_obs()
+		# print(obs)
+		for i in range(gridsize):
+			for j in range(gridsize):
+				# # Get the observation for this grid location. Assume agent 0 is here
+				# agent_obs = obs[0][0]
+				# agent_obs[0] = i
+				# agent_obs[1] = j
+				# # print(agent_obs)
+				# Get the observation for this grid location. Assume agent 0 is here
+				job = obs[1]
+				agent_obs = obs[0][0]
+				# print(agent_obs)
+				relative_job = [i-job[0], j-job[1]]
+				agent_obs[0] = relative_job[0]
+				agent_obs[1] = relative_job[1]
+
+				# Get the value of this location
+				val = VF.get(np.array([agent_obs]))
+				grid[i,j] = val
+		
+		return grid
+
+	def get_post_dec_grid(self, VF):
+		# Return a grid of values for each grid location, calling VF.get for each location
+		# VF is a value function class object
+		gridsize = self.gridsize*2 + 1
+		grid = np.zeros((gridsize, gridsize))
+		obs = self.get_obs()
+		# print(obs)
+		for i in range(gridsize):
+			for j in range(gridsize):
+				# Get the observation for this grid location. Assume agent 0 is here
+				agent_obs = obs[0][0]
+				agent_obs[0] = i/2
+				agent_obs[1] = j/2
+				# print(agent_obs)
+
+				# Get the value of this location
+				val = VF.get(np.array([agent_obs]))
+				grid[i,j] = val
+		
+		return grid
+

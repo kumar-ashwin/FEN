@@ -29,12 +29,12 @@ training = True
 reallocate = False
 central_rewards = False
 simple_obs = False
-logging = False
+logging = True
 
 split = True
 learn_fairness = True
-learn_utility = True
-multi_head = True
+learn_utility = False
+multi_head = False
 
 phased_training = False
 phase_length = 200
@@ -53,7 +53,7 @@ if multi_head and not (learn_fairness and learn_utility):
 	exit()
 
 SI_beta = 0
-learning_beta = 0.0
+learning_beta = 10.0
 fairness_type = "split_diff" # ['split_diff', 'variance_diff', 'split_variance', 'variance', 'SI']
 # fairness_type = "variance_diff"
 
@@ -75,13 +75,14 @@ if split and not learn_utility:
 if split and not learn_fairness:
 	mode += "NoFairness"
 mode += "/"
+# mode += "40_hidden/"
 mode += f"{fairness_type}"
 mode += f"/{learning_beta}"
 
 st_time = time.time()
 if training and logging:
 	# Create a summary writer
-	log_dir = f"logs/DDQN/{mode}/{int(st_time)}/"
+	log_dir = f"logs/Job/DDQN/{mode}/{int(st_time)}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
 else:
@@ -114,22 +115,25 @@ ep_epsilon = eps.reset()
 
 obs = M.get_obs()
 num_features = len(obs[0][0])
+hidden_size = 20
+
+## BIG TO DO: GIVE PENALTY FOR TAKING A BAD (INVALID) ACTION !!!!!!!!!!!!!!
 
 # model_loc = "Models/DDQN/FixedComplex/0/1689619731/best/best_model.ckpt"
-learning_rate = 0.00003
-agent = DDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta)
+learning_rate = 0.0003
+agent = DDQNAgent(M_train, num_features, hidden_size=hidden_size, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta)
 if split:
 	if multi_head:
-		agent = MultiHeadDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+		agent = MultiHeadDDQNAgent(M_train, num_features, hidden_size=hidden_size, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
 				learn_utility=learn_utility, learn_fairness=learn_fairness, phased_learning=phased_training)
 	else:
-		agent = SplitDDQNAgent(M_train, num_features, hidden_size=256, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
+		agent = SplitDDQNAgent(M_train, num_features, hidden_size=hidden_size, learning_rate=learning_rate, replay_buffer_size=250000, GAMMA=GAMMA, learning_beta=learning_beta,
 				learn_utility=learn_utility, learn_fairness=learn_fairness)
 		if not learn_utility:
-			u_model_loc = "Models/DDQN/FixedComplex/Split/split_diff/0.0/1691557008/best/best_model.ckpt_util"
+			u_model_loc = "Models/DDQN/FixedComplex/TestJob/Joint/split_diff/0.0/1704177143/best/best_model.ckpt"
 			agent.load_util_model(u_model_loc)
 		if not learn_fairness:
-			f_model_loc = "Models/DDQN/FixedComplex/0/"
+			f_model_loc = None
 			agent.load_fair_model(f_model_loc)
 	
 if not training:
@@ -140,6 +144,8 @@ best_val_objective = -100000.0
 run_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 while i_episode<n_episode:
 	i_episode+=1
+	# if i_episode==50:
+	# 	render=True
 
 	VF1_loss = []
 	VF2_loss = []
@@ -161,7 +167,8 @@ while i_episode<n_episode:
 
 		steps+=1
 		#For each agent, select the action: central allocation
-		actions = M.compute_best_actions(agent, obs, M.targets, n_agents, 5, M.discounted_su, beta=SI_beta, epsilon=ep_epsilon)
+		# actions = M.compute_best_actions(agent, obs, M.targets, n_agents, 5, M.discounted_su, beta=SI_beta, epsilon=ep_epsilon)
+		actions = M.compute_best_actions(agent, M, obs, beta=SI_beta, epsilon=ep_epsilon)
 		# actions = [random.choice([0,1,2,3,4]) for _ in range(n_agents)]
 		pd_states = M.get_post_decision_states(obs, actions)
 		
@@ -181,7 +188,7 @@ while i_episode<n_episode:
 		#Update the policies
 		if steps%T==0 and training:
 			if split:
-				loss_logs = agent.update(num_samples=32)
+				loss_logs = agent.update(num_samples=32, num_min_samples=1000)
 				if learn_fairness and len(loss_logs['fair'])>0:
 					FF1_loss.extend(loss_logs['fair'][0])
 					FF2_loss.extend(loss_logs['fair'][1])
@@ -189,12 +196,12 @@ while i_episode<n_episode:
 					VF1_loss.extend(loss_logs['util'][0])
 					VF2_loss.extend(loss_logs['util'][1])
 			else:
-				losses1, losses2 = agent.update(num_samples=32)
+				losses1, losses2 = agent.update(num_samples=32, num_min_samples=1000)
 				VF1_loss.extend(losses1)
 				VF2_loss.extend(losses2)
 		
 		if render:
-			M.render()
+			M.render(agent)
 			time.sleep(0.01)
 	
 	losses_dict = None
@@ -206,11 +213,21 @@ while i_episode<n_episode:
 			losses_dict["Fair_Loss"] = np.mean(FF1_loss+FF2_loss)
 			
 	epi_metrics = add_epi_metrics_to_logs(summary_writer, M.su, losses_dict, learning_beta, i_episode, max_steps, verbose=True, prefix="", logging=logging)
+	print("VF Loss", np.mean(VF1_loss+VF2_loss))
+	print("Fair Loss", np.mean(FF1_loss+FF2_loss))
 	for key, value in epi_metrics.items():
 		run_metrics[key].append(value)
 		#Print the average metrics
 		if i_episode%50==0:
 			print("Average "+key+": ", np.mean(run_metrics[key]))
+	
+	# Print a grid of current expected values of the board
+	vgrid = M.get_value_grid(agent)
+	# Pretty print the grid as a 2d array, rounded to 2 decimal places
+	print("Value Grid")
+	for i in range(gridsize):
+		print([round(vgrid[i,j],2) for j in range(gridsize)])
+	print("job location: ", M.job)
 
 	if training:
 		#update the target network every 20 episodes
@@ -223,7 +240,7 @@ while i_episode<n_episode:
 			print("Switched phase")
 
 	# Save the model every 500 episodes
-	if i_episode%500==0:
+	if i_episode%100==0:
 		os.makedirs(f"Models/DDQN/{mode}/{int(st_time)}/", exist_ok=True)
 		agent.save_model(f"Models/DDQN/{mode}/{int(st_time)}/model_{i_episode}.ckpt")
 
@@ -243,7 +260,7 @@ while i_episode<n_episode:
 			obs = M_val.get_obs()
 			score = 0
 			for steps in range(max_steps):
-				actions = M_val.compute_best_actions(agent, obs, M_val.targets, n_agents, 5, M_val.discounted_su, beta=SI_beta, epsilon=0)
+				actions = M_val.compute_best_actions(agent, M_val, obs, beta=SI_beta, epsilon=0)
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
@@ -256,7 +273,7 @@ while i_episode<n_episode:
 			mean_val_metrics[key] = np.mean(value)
 			add_metric_to_logs(summary_writer, np.mean(value), "Validation_"+key, i_episode, logging=logging, verbose=True)
 
-		if  update and best_val_objective<mean_val_metrics['objective'] and i_episode>1000: #At least 1000 episodes before trying to save a best model.
+		if  update and best_val_objective<mean_val_metrics['objective'] and i_episode>100: #At least 1000 episodes before trying to save a best model.
 			best_val_objective = mean_val_metrics['objective']
 			#make directory if it doesn't exist
 			os.makedirs(f"Models/DDQN/{mode}/{int(st_time)}/best", exist_ok=True)

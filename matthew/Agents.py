@@ -9,6 +9,7 @@ import copy
 import matplotlib.pyplot as plt
 
 from tensorboard.plugins.hparams import api as hp
+# from matching import compute_best_actions
 
 
 class SimpleValueNetwork():
@@ -280,7 +281,6 @@ class PrioritizedReplayBuffer(ReplayBuffer):
 		self.priorities = np.zeros((self.max_size,), dtype=np.float32)
 
 
-from matching import compute_best_actions
 
 class DDQNAgent():
 	def __init__(self, 
@@ -338,15 +338,20 @@ class DDQNAgent():
 	def _update(self, experiences, net, target_net, double_target):
 		#Abstracted function to handle updates for both networks
 		# Note: SI beta not supported, always steps with beta=0
-		n_agents = self.envt.n_agents
-		n_resources = self.envt.n_resources
+		# n_agents = self.envt.n_agents
+		# n_resources = self.envt.n_resources
 		losses = []
 		for experience in experiences:
+			# print("Experience")
+			# print(experience)
 			#Compute best action
 			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
+			n_agents = len(pd_state)
 			self.envt.set_state(new_state)
 			succ_obs = self.envt.get_obs()
-			opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
+			# opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
+			opt_actions = self.envt.compute_best_actions(target_net, self.envt, succ_obs, beta=0, epsilon=0.0)
+			# print(opt_actions)
 			new_pd_states = self.envt.get_post_decision_states(succ_obs, opt_actions)
 			
 			td_rewards = np.array(rewards)
@@ -360,6 +365,9 @@ class DDQNAgent():
 			else:
 				target_values = np.array([td_rewards[i] + self.GAMMA * double_target.get(np.array([new_pd_states[i]])) for i in range(n_agents)])
 			target_values = target_values.reshape(-1)
+			
+			# if any(r<-10 for r in rewards):
+			# 	print("Logs", pd_state, "TV:", target_values, "OPT:", opt_actions)
 			
 			loss = net.update(states, target_values)
 			losses.append(loss)
@@ -714,16 +722,15 @@ class MultiHeadDDQNAgent():
 	def _update(self, experiences, net, target_net, double_target):
 		#Abstracted function to handle updates for both networks
 		# Note: SI beta not supported, always steps with beta=0
-		n_agents = self.envt.n_agents
-		n_resources = self.envt.n_resources
 		f_losses = []
 		u_losses = []
 		for experience in experiences:
 			#Compute best action
 			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
+			n_agents = len(pd_state)
 			self.envt.set_state(new_state)
 			succ_obs = self.envt.get_obs()
-			opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
+			opt_actions = self.envt.compute_best_actions(target_net, self.envt, succ_obs, beta=0, epsilon=0.0)
 			new_pd_states = self.envt.get_post_decision_states(succ_obs, opt_actions)
 
 			td_rewards_fair = np.array(f_rewards)
@@ -731,7 +738,7 @@ class MultiHeadDDQNAgent():
 			td_rewards_util = np.array(rewards)
 
 			#Perform batched updates
-			states = np.array([pd_state[i] for i in range(n_agents)])
+			states = np.array([pd_state[i] for i in range(len(pd_state))])
 			if self.learn_fairness:
 				if done:
 					target_values_fair = td_rewards_fair
@@ -763,6 +770,7 @@ class MultiHeadDDQNAgent():
 		min_RB_size = num_min_samples//self.envt.n_agents
 		loss_logs = {'util': [], 'fair': []}
 		if self.RB1.size < min_RB_size or self.RB2.size < min_RB_size:
+			print("NOT UPDATING", self.RB1.size, self.RB2.size, min_RB_size)
 			return	loss_logs
 		
 		self.envt.reset()

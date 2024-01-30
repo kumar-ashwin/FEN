@@ -1,0 +1,20 @@
+Validation Utility: 88.44
+Validation Fairness: -58.310358639408804
+Validation Min Utility: 0.0
+Validation Objective: -1320.9125
+Validation Variance: 1409.3525
+Episode: 400
+Epsilon: 0.0673290214630067
+Simple Obs: False
+Reallocate: False
+Central Rewards: False
+SI Beta: 0
+Learning Beta: 1.0
+Learning Rate: 0.0003
+Fairness Type: split_diff
+Warm Start: 50
+Past Discount: 0.995
+Utility Model: Models/DDQN/FixedComplex/TestJob/Joint/split_diff/0.0/1704177143/best/best_model.ckpt
+Multi Head: False
+Phased Training: False
+Phase Length: 200

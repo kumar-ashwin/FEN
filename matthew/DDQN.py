@@ -163,7 +163,8 @@ while i_episode<n_episode:
 
 		steps+=1
 		#For each agent, select the action: central allocation
-		actions = compute_best_actions(agent, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=SI_beta, epsilon=ep_epsilon)
+		# actions = compute_best_actions(agent, obs, M.targets, n_agents, n_resources, M.discounted_su, beta=SI_beta, epsilon=ep_epsilon) # Deprecated
+		actions = M.compute_best_actions(agent, M, obs, beta=SI_beta, epsilon=ep_epsilon) # New way of computing actions
 		pd_states = M.get_post_decision_states(obs, actions)
 		
 		su_prev = copy.deepcopy(M.discounted_su)
@@ -244,7 +245,7 @@ while i_episode<n_episode:
 			obs = M_val.get_obs()
 			score = 0
 			for steps in range(max_steps):
-				actions = compute_best_actions(agent, obs, M_val.targets, n_agents, n_resources, M_val.discounted_su, beta=SI_beta, epsilon=0)
+				actions = M_val.compute_best_actions(agent, M_val, obs, beta=SI_beta, epsilon=0)
 				rewards = M_val.step(actions)
 				score += sum(rewards)
 				obs = M_val.get_obs()
