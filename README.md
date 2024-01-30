@@ -1,8 +1,8 @@
 # Installation
 
-Python 3.7, tensorflow 2.12.0 matplotlib
+Python 3.7, tensorflow 2.12.0 matplotlib, gurobipy
 For tf on linux: https://www.tensorflow.org/install/pip
-
+On windows, tf 2.10 is the last version supported for GPU. Run on CPU if needed.
 
 upgrade code to tf2: tf_upgrade_v2 --infile job.py --outfile job_tf2.py 
 Change the KTF import
