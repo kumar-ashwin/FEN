@@ -1,0 +1,15 @@
+python job.py ^
+--training False ^
+--split False ^
+--learn_fairness True ^
+--learn_utility True ^
+--multi_head False ^
+--logging False ^
+--render True ^
+--n_episode 10 ^
+--max_steps 100 ^
+--SI_beta 0 ^
+--learning_beta 1.0 ^
+--fairness_type split_diff ^
+--model_loc "Models/JobTest/split_diff/Joint/0.0/1706820615/best/best_model.ckpt" ^
+--warm_start 10

@@ -1,6 +1,12 @@
 """
 Using double deep Q networks with target networks.
 Job usage with multiple agents on a grid world.
+
+
+# TODO: 
+Check SI with scaling based on Qmean. Create a script that runs Qmean evaluation for a few episodes to report averaged utility and fairness
+Figure out if the Fairness learning is not working because of mis-specified fairness score.
+
 """
 import os, sys, time  
 import numpy as np
@@ -24,15 +30,15 @@ from Environment import MatthewEnvt, JobSchedulingEnvt
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-greedy = False
-training = True
+greedy = True
+training = False
 reallocate = False
 central_rewards = False
 simple_obs = False
-logging = True
+logging = False
 
-split = True
-learn_fairness = True
+split = False
+learn_fairness = False
 learn_utility = False
 multi_head = False
 
@@ -52,8 +58,8 @@ if multi_head and not (learn_fairness and learn_utility):
 	print("Multi head only supported for learning both fairness and utility")
 	exit()
 
-SI_beta = 0
-learning_beta = 10.0
+SI_beta = 100
+learning_beta = 0.0
 fairness_type = "split_diff" # ['split_diff', 'variance_diff', 'split_variance', 'variance', 'SI']
 # fairness_type = "variance_diff"
 
@@ -98,14 +104,14 @@ M = JobSchedulingEnvt(n_agents, gridsize=gridsize, reallocate=reallocate, simple
 M_train = JobSchedulingEnvt(n_agents, gridsize=gridsize, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount,)
 M_val = JobSchedulingEnvt(n_agents, gridsize=gridsize, reallocate=reallocate, simple_obs=simple_obs, warm_start=warm_start, past_discount=past_discount,)
 
-config = tf.compat.v1.ConfigProto()  
-config.gpu_options.allow_growth=True   
-session = tf.compat.v1.Session(config=config)
-KTF.set_session(session)
+# config = tf.compat.v1.ConfigProto()  
+# config.gpu_options.allow_growth=True   
+# session = tf.compat.v1.Session(config=config)
+# KTF.set_session(session)
 T = 50   # learning frequency for the policy and value networks
 totalTime = 0
 GAMMA = 0.98
-n_episode = 1000
+n_episode = 1
 max_steps = 100
 i_episode = 0
 render = False
@@ -137,7 +143,7 @@ if split:
 			agent.load_fair_model(f_model_loc)
 	
 if not training:
-	model_loc = ""
+	model_loc = "Models/DDQN/FixedComplex/TestJob/Joint/split_diff/0.0/1704177143/best/best_model.ckpt"
 	agent.load_model(model_loc)
 
 best_val_objective = -100000.0
@@ -223,11 +229,11 @@ while i_episode<n_episode:
 	
 	# Print a grid of current expected values of the board
 	vgrid = M.get_value_grid(agent)
-	# Pretty print the grid as a 2d array, rounded to 2 decimal places
-	print("Value Grid")
-	for i in range(gridsize):
-		print([round(vgrid[i,j],2) for j in range(gridsize)])
-	print("job location: ", M.job)
+	# # Pretty print the grid as a 2d array, rounded to 2 decimal places
+	# print("Value Grid")
+	# for i in range(gridsize):
+	# 	print([round(vgrid[i,j],2) for j in range(gridsize)])
+	# print("job location: ", M.job)
 
 	if training:
 		#update the target network every 20 episodes

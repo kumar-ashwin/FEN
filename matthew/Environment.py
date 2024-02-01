@@ -688,18 +688,22 @@ class JobSchedulingEnvt:
 						
 				#Fairness post processing
 				if beta!=0.0:
+					# print("Fairness post processing")
 					# if direction=='both':
 					mult = (su[i] - np.mean(su))/1000
 					if direction=='adv':
 						mult = min(0,(su[i] - np.mean(su)))/1000
 					elif direction=='dis':
 						mult = max(0,(su[i] - np.mean(su)))/1000
-					# mult = (su[i] - np.mean(su))/1000
-					for j in range(len(Qvals[i])):
-						if j==0:
-							Qvals[i][j] = Qvals[i][j] + beta * mult
+					meanQ = np.mean(Qvals[i])
+
+					# Different way of doing SI in this case, as each agent is independent
+					# Reduce good actions for agents with higher su and increase good actions for agents with lower su
+					for act in range(n_actions):
+						if Qvals[i][act]>meanQ:
+							Qvals[i][act] = Qvals[i][act] - beta*mult
 						else:
-							Qvals[i][j] = Qvals[i][j] - beta * mult
+							Qvals[i][act] = Qvals[i][act] + beta*mult
 		
 		# for i in range(n_agents):
 		# 	print("Qvals", i, Qvals[i])
