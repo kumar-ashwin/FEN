@@ -172,12 +172,14 @@ if args.training:
 		mean_val_metrics[key] = np.mean(value)
 		# Results file is a csv
 	# If the file doesn't exist, create it and write the header
-	
+	# Create the directory if it doesn't exist
 	results_file = f"Results/{args.env_name}results.csv"
 	create=False
-	if not os.path.exists(results_file):
-		create = True
-	with open(results_file, "w") as f:	
+	if not os.path.exists("Results"):
+		os.makedirs("Results")
+	file_exists = os.path.exists(results_file)
+
+	with open(results_file, "a", newline="") as f:	
 		# Add one row to the csv file
 		all_fields = {}
 		for key, value in mean_val_metrics.items():
@@ -188,7 +190,7 @@ if args.training:
 			all_fields[arg] = getattr(train_args, arg)
 		
 		writer = csv.DictWriter(f, fieldnames=all_fields.keys())
-		if create:
+		if not file_exists:
 			writer.writeheader()
 		writer.writerow(all_fields)
 	
