@@ -72,7 +72,7 @@ def get_fairness_from_su(su_prev, su_post, ftype="variance", action=None):
 		return [-np.var(su_post)/n_agents + np.var(su_prev)/n_agents for i in range(n_agents)]
 	elif ftype=="split_diff":
 		#Each agent gets score based on how much they contributed
-		su_post = [su_prev[i] + int(bool(action[i]+1)) for i in range(n_agents)]
+		# su_post = [su_prev[i] + int(bool(action[i]+1)) for i in range(n_agents)] # This is only true for the mathhew envt. 
 		scores = [0 for i in range(n_agents)]
 		zbar = np.mean(su_prev)
 		z2bar = np.mean(su_post)
@@ -82,7 +82,7 @@ def get_fairness_from_su(su_prev, su_post, ftype="variance", action=None):
 			scores[i] = -((z_i2 -z2bar)**2 - (z_i - zbar)**2)/n_agents   #The exact contribution. Not an estimate.
 		return scores
 	elif ftype=='SI':
-		su_post = [su_prev[i] + int(bool(action[i]+1)) for i in range(n_agents)]
+		# su_post = [su_prev[i] + int(bool(action[i]+1)) for i in range(n_agents)] 
 		zbar = np.mean(su_prev)
 		scores = [0 for i in range(n_agents)]
 		for i in range(n_agents):

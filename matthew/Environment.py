@@ -762,3 +762,389 @@ class JobSchedulingEnvt:
 		
 		return grid
 
+
+class NewJobSchedulingEnvt:
+	'''
+	Many workers that desire to work on a job. As long as worker occupies the job's location, they get a reward
+	Central agent approach. The constraint is no worker can be in the same location at the same time. 
+	The allowed actions are only the grid locations immediately adjacent to the agent.
+
+	Actions are converted into integer based on new grid location. 
+	Actions that would lead outside the grid: consider separately or ignore?
+		Going with ignore, they would map back to the current location.
+	'''
+	def __init__(self, 
+	      n_agents, 
+		  gridsize=5,
+		  reallocate=True, 
+		  simple_obs=False, 
+		  warm_start=0,
+		  past_discount=0.995,
+		  ):
+		self.n_agents = n_agents
+		self.gridsize = gridsize
+		
+		self.warm_start = warm_start
+		self.past_discount = past_discount
+
+		self.reset()
+		self.external_trigger = False
+
+		self.reallocate = reallocate
+		self.simple_obs = simple_obs
+		self.observation_space = ['loc','util', 'relative_job', 'relative_util', 'other_agents', 'grid', 'job']
+		if self.simple_obs:
+			self.observation_space = ['relative_job', 'grid', 'relative_util']
+	
+	def reset(self):
+		# The grid is a 2D array of size gridsize x gridsize
+		# Each agent is assigned a random location on the grid
+		# Empty grid locations are 0
+		# Agent locations are 1,2,3,4,5...
+		# Job location is always fixed, so not tracked on the grid
+
+		self.grid = np.zeros((self.gridsize, self.gridsize))
+		ant = []
+		#Random start locations
+		for i in range(self.n_agents):
+			loc = np.random.randint(0,self.gridsize,2)
+			while self.grid[loc[0],loc[1]]!=0:
+				loc = np.random.randint(0,self.gridsize,2)
+			ant.append(np.random.randint(0,self.gridsize,2))
+			self.grid[ant[i][0],ant[i][1]]=i+1
+		ant = np.array(ant)
+
+		self.job = np.random.randint(1,self.gridsize-1,2)
+		self.job_reward = 1
+
+		self.ant = ant
+		self.targets = [None]*self.n_agents
+		self.su = np.zeros(self.n_agents)
+
+		w = 5 #width of the warm start distribution
+		self.discounted_su = np.array([
+			self.warm_start + np.random.rand()*w - w/2
+			for _ in range(self.n_agents)])
+		
+	def map_grid_to_idx(self, i,j):
+		return i*self.gridsize+j
+
+	def map_idx_to_grid(self, idx):
+		return idx//self.gridsize, idx%self.gridsize
+
+	def pre_move(self, ant, dir):
+		x, y = ant
+		dir_map = {
+			0: [0,0],
+			1: [0,1],
+			2: [0,-1],
+			3: [-1,0],
+			4: [1,0]
+		}
+		delta_x = dir_map[dir][0]
+		delta_y = dir_map[dir][1]
+		new_x = x + delta_x
+		new_y = y + delta_y
+		return new_x, new_y
+		
+	
+	def move(self, ant, dir):
+		#Move agent i in direction
+		#dir is one of [stay, up, down, left, right]
+		illegal=False
+		x,y = ant
+		new_x, new_y = self.pre_move(ant,dir)
+
+		# Simple bounds checking.
+		if 0<=new_x<self.gridsize and 0<=new_y<self.gridsize:
+			# No need to check if someone else is there. That is handled by the ILP.
+			x, y = new_x, new_y
+		else:
+			illegal=True
+		return x,y, illegal
+		
+	# Each action is one of [stay, up, down, left, right], and is mapped to a unique grid lcoation
+	def step(self, actions):
+		# actions[i] is the action taken by agent i
+		reset_job = False
+		re = [0]*self.n_agents  #rewards. If an agent is on the job, get reward of 1
+		for i in range(self.n_agents):
+			if actions[i]!=-1:
+				new_x, new_y, _ = self.move(self.ant[i], actions[i])			
+				if self.grid[self.ant[i][0],self.ant[i][1]]==i+1:
+					# If the agent is still at the old location, update the grid
+					# If another update has already been made, don't update the grid
+					self.grid[self.ant[i][0],self.ant[i][1]]=0
+				self.ant[i][0] = new_x
+				self.ant[i][1] = new_y
+				self.grid[new_x, new_y]=i+1
+	
+
+			#Check if agent is on the job
+			if self.ant[i][0]==self.job[0] and self.ant[i][1]==self.job[1]:
+				re[i]=self.job_reward
+				# reset_job = True
+				
+		# if reset_job:
+		# 	self.job = np.random.randint(0,self.gridsize,2)	
+		self.su+=np.array(re)
+		#Update the discounted utilities
+		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
+
+		# Add supplemental reward based on distance from job
+		for i in range(self.n_agents):
+			re[i] += -0.1*get_distance(self.ant[i], self.job)
+		
+		return re
+
+	def get_state(self):
+		return self.ant, self.job, self.su, self.discounted_su
+		
+	def set_state(self, state):
+		self.ant, self.job, self.su, self.discounted_su = state
+
+	def get_obs(self):
+		#Gets the state of the environment (Vector of each agent states)
+		state = []
+		agents = []
+		for i in range(self.n_agents):
+			h={}
+			h['loc'] = [self.ant[i][0], self.ant[i][1]]
+			h['util'] = self.su[i]
+			h['relative_util'] = self.discounted_su[i]/np.mean(self.discounted_su) - 1
+
+			#Get info about other agents
+			others = []
+			# append locations of all other agents
+			for j in range(self.n_agents):
+				if j!=i:
+					others.append([
+						self.ant[j][0],self.ant[j][1],
+						self.su[j],
+					])
+			#flatten
+			others = [feature for other in others for feature in other]
+			h['other_agents'] = others
+
+			# alt: get the 3x3 grid around the agent
+			h['grid'] = []
+			for x in range(self.ant[i][0]-1, self.ant[i][0]+2):
+				for y in range(self.ant[i][1]-1, self.ant[i][1]+2):
+					if 0<=x<self.gridsize and 0<=y<self.gridsize:
+						h['grid'].append(self.grid[x,y])
+					else:
+						h['grid'].append(-1)
+			
+			h['job'] = copy.deepcopy(self.job)
+			#relative job location
+			h['relative_job'] = [self.ant[i][0]-self.job[0], self.ant[i][1]-self.job[1]]
+			# Relative job location does not work, would need to update it in the post_decision state as well
+
+			#feats
+			feats = []
+			# flist = ['loc','util', 'relative_job', 'relative_util', 'other_agents', 'grid', 'job'] # this can work with distance penalty, but takes a long time to train >200 episodes
+			# flist = ['loc', 'relative_util', 'grid', 'job']
+			# flist = ['loc', 'job']
+			# flist = ['relative_job', 'grid']
+			# flist = ['relative_job', 'grid', 'relative_util'] # This seems to work with lr=0.0003, hidden_size=20
+			# flist = ['relative_job', 'relative_job', 'grid', 'relative_util'] # second relative job because first is overwritten by post-decision loc: Probably not needed?
+			# ^Nope. Worse. Even with 40 features
+			# if self.simple_obs:
+				# flist = ['relative_job', 'grid', 'relative_util']
+			flist = self.observation_space
+			
+			for f in flist:
+				# if it is an iterable, extend, else append
+				if f=='util' or f=='relative_util':
+					feats.append(h[f])
+				else:
+					feats.extend(h[f])
+
+			agents.append(feats)
+
+		state.append(agents)
+		state.append(copy.deepcopy(self.job))
+
+		return state
+
+	def render(self, VF=None):
+		text_render = True
+		if not text_render:
+			for i in range(self.n_agents):
+				plt.scatter(self.ant[i][0], self.ant[i][1], color = 'blue')
+				# Add text to show scores
+				plt.text(self.ant[i][0], self.ant[i][1], str(self.su[i]))
+			plt.scatter(self.job[0], self.job[1], color = 'red', marker='x')
+			plt.axis("off")
+			plt.axis("equal")
+			# Make gridlines
+			for i in range(self.gridsize+1):
+				# Horizontal lines
+				l = i - 0.5
+				plt.plot([-0.5,self.gridsize-0.5],[l,l], color='black')
+				# Vertical lines
+				plt.plot([l,l],[-0.5,self.gridsize-0.5], color='black')	
+				
+			plt.xlim(-1 , self.gridsize)
+			plt.ylim(-1 , self.gridsize)
+			plt.ion()
+			plt.pause(0.01)
+			plt.close()
+		else:
+			## Text rendering
+			# Print a * for each agent, and a # for the job. Each grid location is 3 spaces
+			pstr = ""
+			for i in range(self.gridsize):
+				for j in range(self.gridsize):
+					if self.grid[i,j]!=0:
+						if self.job[0]==i and self.job[1]==j:
+							# print("#*", end="  ")
+							pstr += "#*  "
+						else:
+							# print("*", end="   ")
+							pstr += "*   "
+					elif self.job[0]==i and self.job[1]==j:
+						# print("#", end="   ")
+						pstr += "#   "
+					else:
+						# print(".", end="   ")
+						pstr += ".   "
+				# print()
+				pstr += "\n"
+			# print("Score", self.su)
+			pstr += "Score: " + str(self.su) + "\n\n"
+			print(pstr)
+
+
+	
+
+	def get_post_decision_state_agent(self, state, action, ind):
+		# For a single agent
+		s_i = copy.deepcopy(state)
+		if action!=-1:
+			new_x, new_y = self.pre_move(s_i[:2], action)
+			#apply action
+			s_i[0] = new_x 
+			s_i[1] = new_y
+		return s_i
+	
+	
+	def get_post_decision_states(self, obs, actions):
+		states = []
+		for i in range(self.n_agents):
+			s_i = self.get_post_decision_state_agent(obs[0][i], actions[i], i)
+			states.append(s_i)
+		return states
+
+	def get_valid_locations(self, envt):
+		# Get the valid locations for each agent
+		# obs is the observation of the environment
+		# Returns a mapping of each action to a valid location
+		valid_locs = []
+		for i in range(self.n_agents):
+			h = envt.ant[i]
+			valid = {}
+			for act in range(5):
+				new_x, new_y = self.pre_move(h[:2], act)
+				if 0<=new_x<self.gridsize and 0<=new_y<self.gridsize:
+					# If the move is legal, add it to the valid locations
+					valid[act] = self.map_grid_to_idx(new_x, new_y)
+				else:
+					# valid[act] = -1
+					valid[act] = self.map_grid_to_idx(h[0], h[1])
+			valid_locs.append(valid)
+		return valid_locs
+
+
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both', use_greedy=False):
+		# envt is an environment class object with the state set to desired state
+		# targets, n_agents, n_actions, su
+		n_agents = envt.n_agents
+		n_actions = 5
+		n_locs = envt.gridsize**2
+		su = envt.su
+
+		Qvals = [[-1000000 for _ in range(n_actions)] for _ in range(n_agents)]
+
+		valid_locs = envt.get_valid_locations(envt)
+
+		#Get a random action with probability epsilon
+		if np.random.rand()<epsilon:
+			Qvals = [[np.random.rand() for ind in range(n_actions)] for _ in range(n_agents)]
+		else:
+			# First action is to do nothing.
+			resource = copy.deepcopy(obs[1])
+			for i in range(n_agents):
+				h = copy.deepcopy(obs[0][i])
+				for act in range(n_actions):
+					h_post = self.get_post_decision_state_agent(h, act, i)
+
+					if use_greedy:
+						new_loc = self.pre_move(envt.ant[i], act)
+						Qvals[i][act] = 5 - get_distance(new_loc, envt.job)
+					else:
+						Qvals[i][act] = float(model.get(np.array([h_post])))
+
+					# Custom calculation, naive greedy vf
+					# pos_ant = np.array(h_post[:2])
+					# pos_resource = np.array(h_post[-2:])
+					# Qvals[i][act] = 5 - get_distance(pos_ant, pos_resource)
+					
+						
+				#Fairness post processing
+				if beta!=0.0:
+					# print("Fairness post processing")
+					# if direction=='both':
+					mult = (su[i] - np.mean(su))/1000
+					if direction=='adv':
+						mult = min(0,(su[i] - np.mean(su)))/1000
+					elif direction=='dis':
+						mult = max(0,(su[i] - np.mean(su)))/1000
+					meanQ = np.mean(Qvals[i])
+
+					# Different way of doing SI in this case, as each agent is independent
+					# Reduce good actions for agents with higher su and increase good actions for agents with lower su
+					for act in range(n_actions):
+						if Qvals[i][act]>meanQ:
+							Qvals[i][act] = Qvals[i][act] - beta*mult
+						else:
+							Qvals[i][act] = Qvals[i][act] + beta*mult
+		
+
+		# Convert Qvals to n_agens x n_locations for ILP matching
+		Qvals_loc = [[-1000000 for _ in range(n_locs)] for _ in range(n_agents)]
+		for i in range(n_agents):
+			for act in range(n_actions):
+				if act in valid_locs[i]:
+					Qvals_loc[i][valid_locs[i][act]] = Qvals[i][act]
+		# This has to be done after Qvals calculation to account for SI fairness
+		# for i in range(n_agents):
+		# 	print("Qvals", i, Qvals[i])
+		#For each agent, select the best greedy action for now
+		# actions = [np.argmax(Qvals[i]) for i in range(n_agents)]
+		# if self.external_trigger:
+		# 	print(Qvals)
+		# 	print(valid_locs)
+		resource_counts = [1 for _ in range(n_locs)]
+		# Locations with agents are not valid
+		# Add agent constraints: list of locations of other agents
+		agent_constraints = []
+		for i in range(n_agents):
+			illegal_locs = [self.map_grid_to_idx(envt.ant[j][0], envt.ant[j][1]) for j in range(n_agents) if j!=i]
+			agent_constraints.append(illegal_locs)
+
+		locations = get_assignment(Qvals_loc, resource_counts, agent_constraints)
+
+		# Convert locations to actions
+		actions = [-1]*n_agents
+		for i in range(n_agents):
+			for act in valid_locs[i]:
+				if valid_locs[i][act]==locations[i]:
+					actions[i] = act
+					break 
+		if -1 in actions:
+			print("Invalid action")
+			print(actions)
+		# print(actions)
+		return actions
+	

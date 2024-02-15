@@ -40,14 +40,15 @@ def get_agent(train_args, training, num_features, M_train):
 
     return agent
 
-def take_env_step(M, agent, obs, step, ep_epsilon, args, add_to_replay=True):
+def take_env_step(M, agent, obs, step, ep_epsilon, args, add_to_replay=True, use_greedy=False):
     #For each agent, select the action: central allocation
-    actions = M.compute_best_actions(agent, M, obs, beta=args.SI_beta, epsilon=ep_epsilon)
+    actions = M.compute_best_actions(agent, M, obs, beta=args.SI_beta, epsilon=ep_epsilon, use_greedy=use_greedy)
     pd_states = M.get_post_decision_states(obs, actions)
     
     su_prev = copy.deepcopy(M.discounted_su)
     #Take a step based on the actions, get rewards and updated agents, resources etc.
     rewards = M.step(actions)
+
     util = sum(rewards)
     obs = M.get_obs()
     
@@ -58,7 +59,7 @@ def take_env_step(M, agent, obs, step, ep_epsilon, args, add_to_replay=True):
         #Add to replay buffer
         #Experience stores - [(s,a), r(s,a,s'), r_f(s,a,s'), s']
         done = step==args.max_steps
-        agent.add_experience(pd_states, rewards, f_rewards, M.get_state(), done)
+        agent.add_experience(copy.deepcopy(pd_states), copy.deepcopy(rewards), copy.deepcopy(f_rewards), copy.deepcopy(M.get_state()), done)
     return util, obs
 
 def training_step(agent, train_args, losses, num_samples=32, num_min_samples=1000):

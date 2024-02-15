@@ -14,14 +14,14 @@ from Agents import DDQNAgent, SplitDDQNAgent, MultiHeadDDQNAgent
 from matching import compute_best_actions
 from agent_utils import get_agent, take_env_step, training_step, post_episode_hk
 from utils import SI_reward, variance_penalty, get_fairness_from_su, EpsilonDecay, get_metrics_from_rewards, add_epi_metrics_to_logs, add_metric_to_logs
-from Environment import MatthewEnvt, JobSchedulingEnvt
+from Environment import MatthewEnvt, JobSchedulingEnvt, NewJobSchedulingEnvt
 from process_args import process_args
 
 # Use CPU
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-args, train_args = process_args(env_name='JobTest')
+args, train_args = process_args(env_name='JobNoOccupy')
 
 if args.training and args.logging:
 	log_dir = f"logs/{args.save_path}/"
@@ -32,15 +32,15 @@ else:
 
 # Env params
 n_agents = 4
-gridsize = 5
+gridsize = 7
 
-M = JobSchedulingEnvt(n_agents, gridsize=gridsize, reallocate=args.reallocate, simple_obs=args.simple_obs, warm_start=args.warm_start, past_discount=args.past_discount,)
+# M = JobSchedulingEnvt(n_agents, gridsize=gridsize, reallocate=args.reallocate, simple_obs=args.simple_obs, warm_start=args.warm_start, past_discount=args.past_discount,)
+M = NewJobSchedulingEnvt(n_agents, gridsize=gridsize, reallocate=args.reallocate, simple_obs=args.simple_obs, warm_start=args.warm_start, past_discount=args.past_discount,)
 M_train = copy.deepcopy(M)
 M_val = copy.deepcopy(M)
 
-
 i_episode = 0 #episode counter
-eps = EpsilonDecay(start=0.5, end=0.05, decay_rate=0.995, greedy=args.greedy)
+eps = EpsilonDecay(start=0.9, end=0.05, decay_rate=0.995, greedy=args.greedy)
 ep_epsilon = eps.reset()
 
 obs = M.get_obs()
@@ -70,6 +70,7 @@ while i_episode<args.n_episode:
 	while steps<args.max_steps:
 		steps+=1
 		#For each agent, select the action: central allocation
+		# use_greedy = True if i_episode<100 else False
 		util, obs = take_env_step(M, agent, obs, steps, ep_epsilon, args)
 		score += util
 		
@@ -151,6 +152,8 @@ if args.training:
 	agent.set_active_net(0)
 	print("Final Validation")
 	num_eps = 50
+	M_val.external_trigger = True
+
 
 	#Run validation episodes with the current policy
 	val_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
@@ -161,6 +164,15 @@ if args.training:
 		for steps in range(args.max_steps):
 			util, obs = take_env_step(M_val, agent, obs, steps, 0, args, add_to_replay=False)
 			score+=util
+
+			if args.render:
+				M_val.render()
+				time.sleep(0.1)
+				print(steps, val_eps)
+
+		if score==0:
+			print("Zero score")
+			M_val.render()
 
 		print(M_val.su)
 		metrics = get_metrics_from_rewards(M_val.su, args.learning_beta)
@@ -188,6 +200,7 @@ if args.training:
 			all_fields[arg] = getattr(args, arg)
 		for arg in vars(train_args):
 			all_fields[arg] = getattr(train_args, arg)
+		all_fields["observation_space"] = M.observation_space
 		
 		writer = csv.DictWriter(f, fieldnames=all_fields.keys())
 		if not file_exists:

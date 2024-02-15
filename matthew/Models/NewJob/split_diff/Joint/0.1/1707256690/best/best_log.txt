@@ -1,0 +1,45 @@
+Validation Utility: 50.68
+Validation Fairness: -35.71728442679829
+Validation Min Utility: 0.0
+Validation Objective: -32.09675
+Validation Variance: 827.7675
+Episode: 200
+Epsilon: 0.33026203955355027
+Arguments:
+greedy: False
+training: True
+reallocate: False
+central_rewards: False
+simple_obs: False
+logging: True
+SI_beta: 0
+learning_beta: 0.1
+fairness_type: split_diff
+tag: 
+env_name: NewJob
+warm_start: 10.0
+past_discount: 0.995
+n_episode: 200
+max_steps: 100
+render: False
+save_path: NewJob//split_diff/Joint//0.1/1707256690
+Training Arguments:
+hidden_size: 20
+learning_rate: 0.001
+replay_buffer_size: 250000
+model_update_freq: 50
+target_update_freq: 20
+model_save_freq: 100
+validation_freq: 10
+best_model_update_freq: 100
+GAMMA: 0.98
+model_loc: 
+u_model_loc: 
+f_model_loc: 
+split: False
+learn_fairness: True
+learn_utility: True
+multi_head: False
+phased_training: False
+phase_length: 200
+learning_beta: 0.1

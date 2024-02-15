@@ -1,0 +1,33 @@
+For the job environment:
+What works
+1. Able to train with the agent constraint environment- you cannot move into a space that was occupied at t-1 (unless you stay)
+    Params: --n_episode 1000
+        --max_steps 100
+        --learning_rate 0.0003
+        Learns by about 200 episodes
+        This does have a proximity reward, (-0.1*distance to job).
+
+        // !Examine why the fairness fuction is not learning. Check the fairness reward, see if it works as expected.
+        - Observation:
+            !Simple state space seems to be pretty good. However, it misses the point about using more detailed fairness information
+    // 1. The fairness rewards are tiny (~10^-17)
+    2. Important note. The fairness reward was calculated assuming the agents immediately received the reward. 
+        !su_post was calculated in a hacky way for matthew. This might fail now!
+ What does not work:
+    Allowing all locations in the ILP with a resource constraint fails to learn to be fair.
+    Also, there is basically no tradeoff for fairness, the default greedy strategy just lets agents switch in and out without cost
+
+
+For the paper:
+1. The importance of past discounting and warm starts. Could use a section with some experiments about it.
+2. A comparison of how good online SI is compared to the best learned approach. 
+3. Value of using the exact breakdown by agent. 
+    - This can be done for just one domain perhaps.
+4. The job environment needs a shaping reward to help with learning.
+5. A note on how this deals with adversarial reporting of utility:
+    Can agents misreport their utility to get better allocations?
+    - If agents lie about their utility, they might get their "preferred" allocation (which they lied about)
+    - If agents try to over-report the benefit, they might be able to trick the system if they underreport their worst case
+    - If agents can lie about their history, they might be able to get a better allocation
+6. "Area under the pareto front" way to compare how well a fixed point trained model does at different beta values.
+    Each beta will have one point representing the area under its pareto front.

@@ -1,0 +1,45 @@
+Validation Utility: 0.8
+Validation Fairness: -0.4998940311491473
+Validation Min Utility: 0.0
+Validation Objective: -6.3
+Validation Variance: 0.355
+Episode: 300
+Epsilon: 0.2000629798566722
+Arguments:
+greedy: False
+training: True
+reallocate: False
+central_rewards: False
+simple_obs: True
+logging: True
+SI_beta: 0
+learning_beta: 20.0
+fairness_type: split_diff
+tag: 
+env_name: JobNoOccupy
+warm_start: 10.0
+past_discount: 0.995
+n_episode: 1000
+max_steps: 100
+render: False
+save_path: JobNoOccupy//Simple/split_diff/SplitNoUtility/20.0/1707439303
+Training Arguments:
+hidden_size: 20
+learning_rate: 0.0003
+replay_buffer_size: 250000
+model_update_freq: 50
+target_update_freq: 20
+model_save_freq: 100
+validation_freq: 10
+best_model_update_freq: 100
+GAMMA: 0.98
+model_loc: 
+u_model_loc: Models/JobNoOccupy/Simple/split_diff/Joint/0.0/1707336611/best/best_model.ckpt
+f_model_loc: 
+split: True
+learn_fairness: True
+learn_utility: False
+multi_head: False
+phased_training: False
+phase_length: 200
+learning_beta: 20.0

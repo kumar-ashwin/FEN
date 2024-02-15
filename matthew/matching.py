@@ -4,7 +4,7 @@ import numpy as np
 import copy
 from utils import get_distance
 
-def get_assignment(Qvalues):
+def get_assignment_old(Qvalues):
 	n_agents = len(Qvalues)
 	n_resources = len(Qvalues[0])
 	#Create a model
@@ -17,6 +17,35 @@ def get_assignment(Qvalues):
 	#Add constraints
 	m.addConstrs(sum(x[i,j] for j in range(n_resources))==1 for i in range(n_agents)) # Each agent can only be assigned to exactly one resource
 	m.addConstrs(sum(x[i,j] for i in range(n_agents))<=1 for j in range(1,n_resources)) # Each resource except the first one can only be assigned to one agent
+	#Solve
+	m.optimize()
+	#Get solution
+	assignment = []
+	for i in range(n_agents):
+		for j in range(n_resources):
+			if x[i,j].x==1:
+				assignment.append(j)
+	return assignment
+
+def get_assignment(Qvalues, resource_counts, agent_constraints=None):
+	# Qvalues is a list of lists, where each list is the Q values for each agent for each resource
+	# resource_counts is a list of the number of agents that can be assigned to each resource
+	# agent_constraints is a list of the resources an agent cannot be assigned to
+	n_agents = len(Qvalues)
+	n_resources = len(Qvalues[0])
+	#Create a model
+	m = gp.Model("mip1")
+	m.setParam('OutputFlag', 0)
+	#Create variables
+	x = m.addVars(n_agents, n_resources, vtype=GRB.BINARY, name="x")
+	#Set objective and add constraints
+	m.setObjective(sum(sum(Qvalues[i][j]*x[i,j] for j in range(n_resources)) for i in range(n_agents)), GRB.MAXIMIZE)
+	m.addConstrs(sum(x[i,j] for j in range(n_resources))==1 for i in range(n_agents)) # Each agent can only be assigned to exactly one resource (action)
+	m.addConstrs(sum(x[i,j] for i in range(n_agents))<=resource_counts[j] for j in range(n_resources)) # Each resource can only be assigned to a certain number of agents
+	if agent_constraints is not None:
+		for i in range(n_agents):
+			for j in agent_constraints[i]:
+				m.addConstr(x[i,j]==0)
 	#Solve
 	m.optimize()
 	#Get solution

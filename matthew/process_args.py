@@ -181,10 +181,10 @@ def process_args(env_name):
         mode += "NoUtility"
     if training_args.split and not training_args.learn_fairness:
         mode += "NoFairness"
-    mode += "/"+run_args.tag
+    # mode += "/"+run_args.tag
     mode += f"/{run_args.learning_beta}"
 
-    mode = run_args.env_name + "/" + mode
+    mode = run_args.env_name + "/" + run_args.tag + "/" + mode
     mode += f"/{st_time}"
     run_args.save_path = mode
 
