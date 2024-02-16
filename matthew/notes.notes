@@ -24,6 +24,8 @@ For matthew:
     Figure out why. There should be no reason for this to happen.
         Well, that is because I made the environment to be that way. The last 4 agents are of a different type.
     2. higher lr seems beteter (0.0003)
+    3. One way to make this faster, and the tradeoff more meaningful, is to reduce the number of steps per epoch.
+    
 
 For the paper:
 1. The importance of past discounting and warm starts. Could use a section with some experiments about it.

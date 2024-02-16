@@ -59,9 +59,13 @@ class MatthewEnvt:
 		self.GAMMA = GAMMA
 
 		self.reset()
-
+		
 		self.reallocate = reallocate
 		self.simple_obs = simple_obs
+	
+		self.observation_space = ['loc','size','speed', 'eaten','n_other_free_agents','relative_size', 'relative_su', 'other_agents', 'target_resource']
+		if self.simple_obs:
+			self.observation_space = ['loc','size','speed','n_other_free_agents','relative_size', 'target_resource']
 	
 	def reset(self):
 		agent_types = [0,0,0,0,0,0,2,2,2,2]
@@ -228,9 +232,7 @@ class MatthewEnvt:
 
 			#feats
 			feats = []
-			flist = ['loc','size','speed', 'eaten','n_other_free_agents','relative_size', 'relative_su', 'other_agents', 'target_resource']
-			if self.simple_obs:
-				flist = ['loc','size','speed','n_other_free_agents','relative_size', 'target_resource']
+			flist = self.observation_space
 			
 			for f in flist:
 				if f=='loc' or f=='other_agents' or f=='target_resource':
