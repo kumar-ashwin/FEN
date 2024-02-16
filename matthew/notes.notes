@@ -12,11 +12,18 @@ What works
             !Simple state space seems to be pretty good. However, it misses the point about using more detailed fairness information
     // 1. The fairness rewards are tiny (~10^-17)
     2. Important note. The fairness reward was calculated assuming the agents immediately received the reward. 
-        !su_post was calculated in a hacky way for matthew. This might fail now!
+        // !su_post was calculated in a hacky way for matthew. This might fail now!
+    3. !TODO - The Agent's location when reset is badly done. There seems to be a bug, it is possible that 2 agents land in the same spot
+
  What does not work:
     Allowing all locations in the ILP with a resource constraint fails to learn to be fair.
     Also, there is basically no tradeoff for fairness, the default greedy strategy just lets agents switch in and out without cost
 
+For matthew:
+1. The validation utilities have this weird pattern: the last 4 agents consistently get higher utility??
+    Figure out why. There should be no reason for this to happen.
+        Well, that is because I made the environment to be that way. The last 4 agents are of a different type.
+    2. higher lr seems beteter (0.0003)
 
 For the paper:
 1. The importance of past discounting and warm starts. Could use a section with some experiments about it.
@@ -31,3 +38,4 @@ For the paper:
     - If agents can lie about their history, they might be able to get a better allocation
 6. "Area under the pareto front" way to compare how well a fixed point trained model does at different beta values.
     Each beta will have one point representing the area under its pareto front.
+7. What about a non-central approach? If each agent makes their own decision, does this training help?

@@ -46,6 +46,7 @@ class MatthewEnvt:
 		  simple_obs=False, 
 		  warm_start=0,
 		  past_discount=0.995,
+		  GAMMA=None
 		  ):
 		self.n_agents = n_agents
 		self.n_resources = n_resources
@@ -55,6 +56,7 @@ class MatthewEnvt:
 		self.base_speed = base_speed
 		self.warm_start = warm_start
 		self.past_discount = past_discount
+		self.GAMMA = GAMMA
 
 		self.reset()
 
@@ -103,11 +105,15 @@ class MatthewEnvt:
 		clear_targets = False
 		# Actions just decide mapping of agents to resources
 		re = [0]*self.n_agents  #rewards. If an agent picks up a resource, get reward of 1
+		re_expected = [0]*self.n_agents  #rewards. If an agent is assigned a resource, get reward of 1*discount^T
 		for i in range(self.n_agents):
 			if actions[i]!=-1:
 				self.targets[i] = [actions[i]]
 				#Add the time to reach the resource to the targets vector
-				self.targets[i].append(get_distance(self.ant[i],self.resource[actions[i]])/self.speed[i])
+				time_to_reach = get_distance(self.ant[i],self.resource[actions[i]])/self.speed[i]
+				self.targets[i].append(time_to_reach)
+				assert self.GAMMA is not None, "GAMMA must be set for re_expected"
+				re_expected[i]=1*self.GAMMA**time_to_reach 
 
 			#Move each agent towards its target resource
 			if self.targets[i] is not None:
@@ -164,11 +170,15 @@ class MatthewEnvt:
 				# print("Clearing Targets")
 				for i in range(self.n_agents):
 					self.targets[i]=None
-		self.su+=np.array(re)
-		#Update the discounted su
-		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
 
-		return re
+		self.su+=np.array(re) # This always keeps track of what the agent has received exactlys
+		
+		#Update the discounted su
+		re_return = np.array(re_expected)
+		# re_return = np.array(re)
+		self.discounted_su = self.discounted_su*self.past_discount + np.array(re_return)
+
+		return re_return
 
 	def get_state(self):
 		return self.ant, self.resource, self.targets, self.size, self.speed, self.su, self.agent_types, self.discounted_su
@@ -340,8 +350,8 @@ class MatthewEnvt:
 		plt.pause(0.1)
 		plt.close()
 
-	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both'):
-		# targets, n_agents, n_resources, su, should be extracted from envt
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both', use_greedy=False):
+		# Greedy strategy: Fastest agent gets the resource
 		targets, n_agents, n_resources, su = envt.targets, envt.n_agents, envt.n_resources, envt.su
 
 		Qvals = [[-1000000 for _ in range(n_resources+1)] for _ in range(n_agents)]
@@ -362,16 +372,21 @@ class MatthewEnvt:
 				ant_speed = h[2]
 
 				Qvals[i][0] = float(model.get(np.array([h])))
+				if use_greedy:
+					Qvals[i][0] = 0
 
 				if targets[i] is None:
 					#If the agent can pick another action, get Q values for all actions
 					for j in range(n_resources):
 						if j not in occupied_resources:
-							h = copy.deepcopy(obs[0][i])
-							h[-3] = resource[j][0]
-							h[-2] = resource[j][1]
-							h[-1] = get_distance(ant_loc,resource[j])/ant_speed
-							Qvals[i][j+1] = float(model.get(np.array([h])))
+							if use_greedy:
+								Qvals[i][j+1] = ant_speed
+							else:
+								h = copy.deepcopy(obs[0][i])
+								h[-3] = resource[j][0]
+								h[-2] = resource[j][1]
+								h[-1] = get_distance(ant_loc,resource[j])/ant_speed
+								Qvals[i][j+1] = float(model.get(np.array([h])))
 						
 				#Fairness post processing
 				if beta is not 0.0:
@@ -390,8 +405,16 @@ class MatthewEnvt:
 		
 		# for i in range(n_agents):
 		# 	print(Qvals[i])
-		#For each agent, select the action using the central agent given Q values
-		actions = get_assignment(Qvals)
+		#For each agent, select the action using the central agent given Q values and target availability
+		resource_counts = [n_agents] # First action does not have a resource restriction
+		for i in range(n_resources):
+			# Add available resources
+			if i not in occupied_resources:
+				resource_counts.append(1)
+			else:
+				resource_counts.append(0)
+			
+		actions = get_assignment(Qvals, resource_counts)
 		#shift actions by 1 to get the correct index
 		actions = [a-1 for a in actions]
 		# print(actions)
@@ -810,7 +833,7 @@ class NewJobSchedulingEnvt:
 			loc = np.random.randint(0,self.gridsize,2)
 			while self.grid[loc[0],loc[1]]!=0:
 				loc = np.random.randint(0,self.gridsize,2)
-			ant.append(np.random.randint(0,self.gridsize,2))
+			ant.append(np.random.randint(0,self.gridsize,2)) # TODO: Check. This probably needs fixing.
 			self.grid[ant[i][0],ant[i][1]]=i+1
 		ant = np.array(ant)
 
