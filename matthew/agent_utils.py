@@ -72,7 +72,7 @@ def training_step(agent, train_args, losses, num_samples=32, num_min_samples=100
             losses['VF1'].extend(loss_logs['util'][0])
             losses['VF2'].extend(loss_logs['util'][1])
     else:
-        losses1, losses2 = agent.update(num_samples=32, num_min_samples=1000)
+        losses1, losses2 = agent.update(num_samples=num_samples, num_min_samples=num_min_samples)
         losses['VF1'].extend(losses1)
         losses['VF2'].extend(losses2)
 

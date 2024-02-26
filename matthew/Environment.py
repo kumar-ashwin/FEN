@@ -12,6 +12,9 @@ def get_distance(a,b):
 class MACEnvt:
 	'''
 	Meta class for multi-agent central decision-maker environments
+
+	# self.su should be used to keep track of rewards.
+	# self.discounted_su should be used for fairness
 	'''
 	def __init__(self):
 		pass
@@ -30,9 +33,95 @@ class MACEnvt:
 		pass
 	def get_post_decision_states(self, obs, actions):
 		pass
-	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both'):
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both', use_greedy=False):
 		# targets, n_agents, n_resources, su, should be extracted from envt
 		pass
+
+class SimpleEnvt:
+	def __init__(self, n_agents, warm_start=0, past_discount=0.995, **kwargs):
+		"""
+		Simple environment for fairness vs utility
+		2 agents, 1 resource. 
+		Agent 1 gets reward of 1 if it picks up the resource
+		Agent 2 gets reward of 0.5 if it picks up the resource
+		System util is the sum of the rewards
+		"""
+		self.n_agents = n_agents
+		self.warm_start = warm_start
+		self.past_discount = past_discount
+		self.agent_scores = [1,0.5] # The reward each agent gets for picking up the resource
+		self.observation_space = ['agent_score', 'su', 'relative_su']
+		self.reset()
+
+	def reset(self):
+		self.su = np.zeros(self.n_agents)
+		w = 5 #width of the warm start randomization
+		self.discounted_su = np.array([
+			self.warm_start + np.random.rand()*w - w/2 
+			for _ in range(self.n_agents)])
+		
+	def step(self, actions):
+		re = [0]*self.n_agents
+		for i in range(self.n_agents):
+			re[i] = actions[i]*self.agent_scores[i]
+
+		self.su+=np.array(re)
+		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
+		return re
+
+	def get_state(self):
+		return self.su, self.discounted_su
+	
+	def set_state(self, state):
+		self.su, self.discounted_su = state
+
+	def get_obs(self):
+		agents = []
+		for i in range(self.n_agents):
+			agent = [
+				self.agent_scores[i],
+				0, # Dummy, placeholder for whether agent gets a resource. Just for VF
+				# self.su[i],
+				self.discounted_su[i]/np.mean(self.discounted_su) - 1,
+			]
+			agents.append(agent)
+		return [agents, []]
+	
+	def render(self):
+		print("agent 1 \t agent 2")
+		print(self.su[0], "\t", self.su[1])
+	
+	def get_post_decision_state_agent(self, obs, action, idx):
+		s_i = copy.deepcopy(obs)
+		if len(s_i)>1:
+			s_i[1] += action*self.agent_scores[idx]
+		return s_i
+
+	def get_post_decision_states(self, obs, actions):
+		states = []
+		for i in range(self.n_agents):
+			s_i = self.get_post_decision_state_agent(obs[0][i], actions[i], i)
+			states.append(s_i)
+		return states
+	
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both', use_greedy=False, val=False):
+		# Greedy strategy: Fastest agent gets the resource
+		n_agents = envt.n_agents
+		Qvals = [[-1000000 for _ in range(2)] for _ in range(n_agents)]
+		#Get a random action with probability epsilon
+		if np.random.rand()<epsilon:
+			Qvals = [[np.random.rand() for act in range(2)] for _ in range(n_agents)]
+		else:
+			for i in range(n_agents):
+				for j in range(2):
+					s_i = self.get_post_decision_state_agent(obs[0][i], j, i)
+					Qvals[i][j] = float(model.get(np.array([s_i])))
+		if val:
+			print(Qvals)
+		actions = get_assignment(Qvals, [n_agents, 1])
+		return actions
+		# One way to account for agents being able to receive more than one resource is to flip the allocation. 
+		# Each resource must receive exactly one agent
 
 class MatthewEnvt:
 	def __init__(self, 
@@ -813,7 +902,6 @@ class NewJobSchedulingEnvt:
 		self.past_discount = past_discount
 
 		self.reset()
-		self.external_trigger = False
 
 		self.reallocate = reallocate
 		self.simple_obs = simple_obs
@@ -1147,9 +1235,6 @@ class NewJobSchedulingEnvt:
 		# 	print("Qvals", i, Qvals[i])
 		#For each agent, select the best greedy action for now
 		# actions = [np.argmax(Qvals[i]) for i in range(n_agents)]
-		# if self.external_trigger:
-		# 	print(Qvals)
-		# 	print(valid_locs)
 		resource_counts = [1 for _ in range(n_locs)]
 		# Locations with agents are not valid
 		# Add agent constraints: list of locations of other agents
@@ -1173,3 +1258,212 @@ class NewJobSchedulingEnvt:
 		# print(actions)
 		return actions
 	
+
+class PlantEnvt:
+	def __init__(self, 
+			n_agents=5,
+			gridsize=12,
+			n_resources=8,
+			reallocate=True, 
+			simple_obs=False, 
+			warm_start=0,
+			past_discount=0.995,
+			):
+		"""
+		3 types of resources
+		Agents each have unique requirements for combinations of resources
+		Once the requirements are satisfied, agents produce one 'unit' and receive a reward, consuming the resource.
+		TODO: This can also have 2 modes: allocate grid locations, or allocate resources.
+		"""
+		self.n_agents = n_agents
+		self.gridsize = gridsize
+		self.n_resources = n_resources
+		self.simple_obs = simple_obs
+		self.warm_start = warm_start
+		self.past_discount = past_discount
+
+		self.observation_space = ['neighborhood', 'posessions', 'requirement' 'su', 'relative_su']
+		self.reset()
+	
+	def reset(self):
+		# The grid is a 2D array of size gridsize x gridsize
+		# Each agent is assigned a random location on the grid
+		# Empty grid locations are 0
+		# Agent locations are 4.
+		# Resource locations are 1+ resource type (1-3)
+
+		self.grid = np.zeros((self.gridsize, self.gridsize))
+		ant = []
+		#Random start locations
+		for i in range(self.n_agents):
+			loc = np.random.randint(0,self.gridsize,2)
+			while self.grid[loc[0],loc[1]]!=0:
+				loc = np.random.randint(0,self.gridsize,2)
+			ant.append(loc)
+			self.grid[ant[i][0],ant[i][1]]=4
+		ant = np.array(ant)
+
+		# generate resources
+		resources = []
+		resource_types = []
+		for i in range(self.n_resources):
+			resources.append(np.random.randint(1,self.gridsize-1,2))
+			resource_types.append(np.random.randint(3))
+
+		requirements=[[2, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 0], [0, 1, 2]]
+
+		self.ant = ant
+		self.targets = [None]*self.n_agents
+		self.su = np.zeros(self.n_agents)
+		self.resources = np.array(resources)
+		self.resource_types = np.array(resource_types)
+		self.requirements = np.array(requirements)
+		self.posessions = np.array([[0,0,0] for _ in range(self.n_agents)])
+
+		w = 5 #width of the warm start distribution
+		self.discounted_su = np.array([
+			self.warm_start + np.random.rand()*w - w/2
+			for _ in range(self.n_agents)])
+		
+	def map_grid_to_idx(self, i,j):
+		return i*self.gridsize+j
+
+	def map_idx_to_grid(self, idx):
+		return idx//self.gridsize, idx%self.gridsize
+
+	def pre_move(self, ant, dir):
+		x, y = ant
+		dir_map = {
+			0: [0,0],
+			1: [0,1],
+			2: [0,-1],
+			3: [-1,0],
+			4: [1,0]
+		}
+		delta_x = dir_map[dir][0]
+		delta_y = dir_map[dir][1]
+		new_x = x + delta_x
+		new_y = y + delta_y
+		return new_x, new_y
+		
+	
+	def move(self, ant, dir):
+		#Move agent i in direction
+		#dir is one of [stay, up, down, left, right]
+		illegal=False
+		x,y = ant
+		new_x, new_y = self.pre_move(ant,dir)
+
+		# Simple bounds checking.
+		if 0<=new_x<self.gridsize and 0<=new_y<self.gridsize:
+			# No need to check if someone else is there. That is handled by the ILP.
+			x, y = new_x, new_y
+		else:
+			illegal=True
+		return x,y, illegal
+		
+	# Each action is one of [stay, up, down, left, right], and is mapped to a unique grid lcoation
+	def step(self, actions):
+		# actions[i] is the action taken by agent i
+		re = [0]*self.n_agents  #rewards. If an agent constructs a unit, get a reward of one.
+		# Shaping reward 
+		re_shaping = np.array([0]*self.n_agents)
+		newgrid = np.zeros((self.gridsize, self.gridsize))
+		consumed_resources = []
+		for i in range(self.n_agents):
+			if actions[i]!=-1:
+				new_x, new_y, _ = self.move(self.ant[i], actions[i])			
+				self.ant[i][0] = new_x
+				self.ant[i][1] = new_y
+				newgrid[new_x, new_y]=i+1
+
+				#Check if agent picked up a resource
+				for j in range(self.n_resources):
+					if self.resources[j][0]==new_x and self.resources[j][1]==new_y:
+						consumed_resources.append(j)
+						r_type = self.resource_types[j]
+						self.posessions[i][r_type]+=1
+						if self.posessions[i][r_type]<=self.requirements[i][r_type]:
+							re_shaping[i]+=0.1		
+		
+		#replenish consumed resources
+		for j in consumed_resources:
+			self.resources[j] = np.random.randint(1,self.gridsize-1,2)
+			self.resource_types[j] = np.random.randint(3)
+		
+		# Construct units
+		for i in range(self.n_agents):
+			n_units = 10000
+			for j in range(3):
+				if self.requirements[i][j]==0:
+					continue
+				else:
+					count = int(self.posessions[i][j]/self.requirements[i][j])
+					if count<n_units:
+						n_units = count
+			re[i]+=n_units
+			for j in range(3):
+				self.posessions[i][j]-=self.requirements[i][j]*n_units
+
+		self.su+=np.array(re)
+		re_return = np.array(re) + re_shaping 		
+		#Update the discounted utilities
+		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
+
+		# Add supplemental reward based on distance from closest useful resource
+		for i in range(self.n_agents):
+			closest_useful = 100000
+			for j in range(self.n_resources):
+				r_type = self.resource_types[j]
+				if self.posessions[i][r_type]<self.requirements[i][r_type]:
+					dist = get_distance(self.ant[i], self.resources[j])
+					if dist<closest_useful:
+						closest_useful = dist
+			re_return[i] += -0.01*closest_useful
+		
+		return re_return
+
+	def get_state(self):
+		return self.ant, self.resources, self.resource_type, self.requirements, self.su, self.discounted_su
+	
+	def set_state(self, state):
+		self.ant, self.resources, self.resource_type, self.requirements, self.su, self.discounted_su = state
+
+	def get_obs(self):
+		agents = []
+		# TODO
+		return [agents, []]
+	
+	def render(self):
+		
+		return
+
+	def get_post_decision_state_agent(self, obs, action, idx):
+		s_i = copy.deepcopy(obs)
+		if len(s_i)>1:
+			s_i[1] += action*self.agent_scores[idx]
+		return s_i
+
+	def get_post_decision_states(self, obs, actions):
+		states = []
+		for i in range(self.n_agents):
+			s_i = self.get_post_decision_state_agent(obs[0][i], actions[i], i)
+			states.append(s_i)
+		return states
+	
+	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both', use_greedy=False, val=False):
+		# Greedy strategy: Fastest agent gets the resource
+		n_agents = envt.n_agents
+		Qvals = [[-1000000 for _ in range(2)] for _ in range(n_agents)]
+		#Get a random action with probability epsilon
+		if np.random.rand()<epsilon:
+			Qvals = [[np.random.rand() for act in range(2)] for _ in range(n_agents)]
+		else:
+			for i in range(n_agents):
+				for j in range(2):
+					s_i = self.get_post_decision_state_agent(obs[0][i], j, i)
+					Qvals[i][j] = float(model.get(np.array([s_i])))
+		if val:
+			print(Qvals)
+		actions = get_assignment(Qvals, [n_agents, 1])
+		return actions

@@ -25,7 +25,13 @@ For matthew:
         Well, that is because I made the environment to be that way. The last 4 agents are of a different type.
     2. higher lr seems beteter (0.0003)
     3. One way to make this faster, and the tradeoff more meaningful, is to reduce the number of steps per epoch.
-    
+    4. !In multi-agent, beta=0 learning is poor. Figure out why (this seems to be a general thing)
+        - Option 1: If learning_beta=0, set learn_fairness to false. It is likely that the model still tries to update the fairness loss, as beta is used nowhere in the update
+        - Option 2: If learning_beta=0, set the fairness reward to 0. This is likely the same as option 1, but it is a more direct approach: Suggested by copilot
+        - Option 3: Change the update function to work based off the beta value. The fairness loss is scaled by beta?. This is likely the best approach, but it is also the most work. Will involve redoing all experiments.
+    5. Generally, need to think about the fairness reward. Do we want the fair agent to learn from F(s) - (R_f + F(s')) or \beta*(F(s) - (R_f + F(s'))? Does it make a difference in the split agent? It should make a difference in the multi-head agent.
+!Other thing to check: The num_samples is just 32 and num_min_samples is 1000/num_agents. Update freq is 100, so we are horribly underutilizing experiences
+
 
 For the paper:
 1. The importance of past discounting and warm starts. Could use a section with some experiments about it.
@@ -41,3 +47,6 @@ For the paper:
 6. "Area under the pareto front" way to compare how well a fixed point trained model does at different beta values.
     Each beta will have one point representing the area under its pareto front.
 7. What about a non-central approach? If each agent makes their own decision, does this training help?
+8. Might need to run bootstraps to get average behavior at each beta.
+
+!? Why cant the networks predict all actions at once, and we superimpose them?

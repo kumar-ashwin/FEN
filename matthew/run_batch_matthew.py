@@ -1,8 +1,8 @@
 import os
 
-split = False
+split = True
 learn_fairness = True
-learn_utility = True
+learn_utility = False
 multi_head = False
 logging = True
 render = False
@@ -14,7 +14,7 @@ learning_rate = 0.0003
 learning_beta = 1.0
 fairness_type = "split_diff"
 model_update_freq = 100
-hidden_size = 256 # Use 256?
+hidden_size = 20 # Use 256?
 tag="Main1500"
 warm_start = 50 
 if not learn_utility:
@@ -25,22 +25,24 @@ if not learn_utility:
         exit()
         u_model_loc = ""
     else:
-        exit()
-        u_model_loc = ""
+        u_model_loc = "Models/Matthew/Main1500/split_diff/Joint/0.0/1708110454/best/best_model.ckpt"
+        # exit()
         
-## 1K runs: Middle two are multihead
+## All models so far were with default hidden size (20)
+    
 
-learning_betas = [0.0, 0.01, 0.02, 0.05]
-learning_betas = [0.1, 0.2, 0.5, 1.0, 2.0]
-learning_betas = [5.0, 10.0, 20.0, 50.0]
+# learning_betas = [0.0, 0.01, 0.02, 0.05]
+learning_betas = [0.01, 0.02, 0.05, 0.1, 0.2] #Skipping 0 for no util, just for now
+#50 is incomplete
+learning_betas = [0.1, 0.2, 0.3, 0.4, 0.5]
 # learning_betas = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]
-# learning_betas = [0.1]
 for learning_beta in learning_betas:
     os.system(f"""python matthew.py \
             --split {split} \
             --learn_fairness {learn_fairness} \
             --learn_utility {learn_utility} \
             --multi_head {multi_head} \
+            --hidden_size {hidden_size} \
             --logging {logging} \
             --render {render} \
             --simple_obs {simple_obs} \

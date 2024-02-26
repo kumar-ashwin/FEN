@@ -114,6 +114,7 @@ def step(env,ant,action,resource,resource_type,possession,requirement):
 				resource[j]=np.random.randint(3,9,2)
 				possession[i][resource_type[j]]+=1
 				if possession[i][resource_type[j]]<requirement[i][resource_type[j]]:
+					#If the agent not collected enough resources, get reward for useful collection
 					re[i]+=0.1
 				resource_type[j] = np.random.randint(3)
 				number+=1
@@ -127,6 +128,7 @@ def step(env,ant,action,resource,resource_type,possession,requirement):
 				t = int(possession[i][j]/requirement[i][j])
 				if t<x:
 					x=t
+			# x is how many items can be made.
 		re[i]+=(x)
 		for j in range(3):
 			possession[i][j]-=requirement[i][j]*x
