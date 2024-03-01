@@ -349,7 +349,6 @@ class DDQNAgent():
 			n_agents = len(pd_state)
 			self.envt.set_state(new_state)
 			succ_obs = self.envt.get_obs()
-			# opt_actions = compute_best_actions(target_net, succ_obs, self.envt.targets, n_agents, n_resources, self.envt.discounted_su, beta=0, epsilon=0.0)
 			opt_actions = self.envt.compute_best_actions(target_net, self.envt, succ_obs, beta=0, epsilon=0.0)
 			# print(opt_actions)
 			new_pd_states = self.envt.get_post_decision_states(succ_obs, opt_actions)
@@ -544,12 +543,12 @@ class SplitDDQNAgent():
 		if self.learn_fairness:
 			self.fairAgent.save_model(save_path+'_fair')
 
-#Write a multi head class for the above, with 2 heads. One for utility and one for fairness
 class MultiHeadValueNetwork():
 	def __init__(self, num_features, hidden_size, learning_rate=.01, learning_beta=0.0):
 		self.num_features = num_features
 		self.hidden_size = hidden_size
 		self.learning_beta = learning_beta
+		self.eval_beta = learning_beta # Added a differentiator
 		self.tf_graph = tf.Graph()
 
 		with self.tf_graph.as_default():
@@ -586,7 +585,8 @@ class MultiHeadValueNetwork():
 	def get(self, states):
 		value_fair = self.session.run(self.output_fair, feed_dict={self.observations: states})
 		value_util = self.session.run(self.output_util, feed_dict={self.observations: states})
-		return value_util + value_fair * self.learning_beta
+		mult = 0 if self.learning_beta==0 else self.eval_beta/self.learning_beta # Eval on non-zero beta not allowed when learning_beta=0
+		return value_util + value_fair * mult
 	
 	def get_util(self, states):
 		value_util = self.session.run(self.output_util, feed_dict={self.observations: states})
@@ -597,6 +597,8 @@ class MultiHeadValueNetwork():
 		return value_fair
 	
 	def update(self, states, discounted_rewards_fair, discounted_rewards_util):
+		print("Update not supported for MultiHeadValueNetwork")
+		exit()
 		_, loss_fair = self.session.run([self.minimize_fair, self.loss_fair], feed_dict={
 			self.observations: states, self.rollout_fair: discounted_rewards_fair
 		})
@@ -607,6 +609,7 @@ class MultiHeadValueNetwork():
 		return loss_fair, loss_util
 	
 	def update_fair_head(self, states, discounted_rewards_fair):
+		discounted_rewards_fair = self.learning_beta*discounted_rewards_fair
 		_, loss_fair = self.session.run([self.minimize_fair, self.loss_fair], feed_dict={
 			self.observations: states, self.rollout_fair: discounted_rewards_fair
 		})
@@ -659,6 +662,7 @@ class MultiHeadDDQNAgent():
 		self.replay_buffer_size = replay_buffer_size
 		self.GAMMA = GAMMA
 		self.learning_beta = learning_beta
+		self.eval_beta = learning_beta
 		self.learn_utility = learn_utility
 		self.learn_fairness = learn_fairness
 
@@ -710,6 +714,11 @@ class MultiHeadDDQNAgent():
 		self.learning_beta = beta
 		self.VF1.learning_beta = beta
 		self.VF2.learning_beta = beta
+	
+	def set_eval_beta(self, beta):
+		self.eval_beta = beta
+		self.VF1.eval_beta = beta
+		self.VF2.eval_beta = beta
 	
 	def add_experience(self, post_decision_state, rewards, f_rewards, new_state, done):
 		# experience = copy.deepcopy([post_decision_state, rewards, f_rewards, new_state])

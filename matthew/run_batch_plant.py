@@ -1,24 +1,23 @@
 import os
 
-split = True
+split = False
 learn_fairness = True
 learn_utility = True
-multi_head = True
+multi_head = False
 logging = True
 render = False
 simple_obs = False
-n_episode = 1500
-max_steps = 500
+n_episode = 1000
+max_steps = 100
 SI_beta = 0
 learning_rate = 0.0003
-learning_beta = 1.0
 fairness_type = "split_diff"
+hidden_size = 256
 model_update_freq = 50
 best_model_update_freq = 100
 model_save_freq = 100
-hidden_size = 20 # Use 256?
-tag="Main1500"
-warm_start = 50 
+tag=""
+warm_start = 3
 if not learn_utility:
     if multi_head:
         print("Multihead not supported for learn_utility=False")
@@ -27,21 +26,11 @@ if not learn_utility:
         exit()
         u_model_loc = ""
     else:
-        u_model_loc = "Models/Matthew/Main1500/split_diff/Joint/0.0/1708110454/best/best_model.ckpt"
-        # exit()
+        exit()
         
-## All models so far were with default hidden size (20)
-    
-
-# learning_betas = [0.0, 0.01, 0.02, 0.05]
-learning_betas = [0.01, 0.02, 0.05, 0.1, 0.2] #Skipping 0 for no util, just for now
-#50 is incomplete
-learning_betas = [0.01, 0.00]
-learning_betas = [0.02, 0.03]
-learning_betas = [0.04, 0.05]
-# learning_betas = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]
+learning_betas = [0.0]#, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
 for learning_beta in learning_betas:
-    os.system(f"""python matthew.py \
+    os.system(f"""python plant.py \
             --split {split} \
             --learn_fairness {learn_fairness} \
             --learn_utility {learn_utility} \

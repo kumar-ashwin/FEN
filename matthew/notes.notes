@@ -50,3 +50,5 @@ For the paper:
 8. Might need to run bootstraps to get average behavior at each beta.
 
 !? Why cant the networks predict all actions at once, and we superimpose them?
+
+https://arxiv.org/pdf/2401.02552.pdf: Recent paper about long term fairness (2024)
