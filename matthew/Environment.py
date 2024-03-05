@@ -41,28 +41,30 @@ class MACEnvt:
 class WarmStartEnvt:
 	def __init__(self, n_agents=5, warm_start=0, past_discount=0.995, **kwargs):
 		"""
-		Simple environment for fairness vs utility
-		2 agents, 1 resource. 
-		Agent 1 gets reward of 1 if it picks up the resource
-		Agent 2 gets reward of 0.5 if it picks up the resource
-		System util is the sum of the rewards
+		Agents have different utility they get from resources
+		Fairness objective is not for the agents to get the same utility, but for the agents to get the same amount of resources
 		"""
 		self.n_agents = n_agents
 		self.warm_start = warm_start
 		self.past_discount = past_discount
-		self.agent_scores = [1, 0.8, 0.5, 0.3, 0.1] # The reward each agent gets for picking up the resource
-		self.observation_space = ['agent_score', 'su', 'relative_su']
+		self.agent_scores = [1, 0.8, 0.6, 0.4, 0.2] # The reward each agent gets for picking up the resource
+		
+		self.observation_space = ['util','agent_score', 'disc_resource_rate', 'relative_util','about_to_get_resource']
+
 		self.reset()
 
 	def reset(self):
 		self.su = np.zeros(self.n_agents)
 		w = 5 #width of the warm start randomization
-		self.discounted_su = np.array([
+		self.resources = np.array([
 			self.warm_start + np.random.rand()*w - w/2 
 			for _ in range(self.n_agents)])
-		self.resource_rate = np.zeros(self.n_agents) # How many resources did this agent get historically
+		# self.resource_rate = np.zeros(self.n_agents) # How many resources did this agent get historically
+		self.resource_rate = self.resources/max(self.resources) # How many resources did this agent get historically
 		self.time = 0
 		self.resources = np.zeros(self.n_agents)
+		self.discounted_su = copy.deepcopy(self.resource_rate)
+		
 		
 	def step(self, actions):
 		re = [0]*self.n_agents
@@ -72,8 +74,9 @@ class WarmStartEnvt:
 		self.time+=1
 		self.su+=np.array(re)
 		for i in range(self.n_agents):
-			self.resource_rate[i] = (self.resource[i] + actions[i])/(self.time)
-			self.discounted_su[i] = (self.resource[i]*self.past_discount + actions[i])/((self.time-1)*self.past_discount + 1)
+			self.resource_rate[i] = (self.resources[i] + actions[i])/(self.time)
+			self.discounted_su[i] = (self.resources[i]*self.past_discount + actions[i])/((self.time-1)*self.past_discount + 1)
+			self.resources[i]+=actions[i]
 		# self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
 		return re
 
@@ -84,33 +87,97 @@ class WarmStartEnvt:
 		self.su, self.discounted_su, self.time, self.resource_rate, self.resources = state
 
 	def get_obs(self):
+		# Needs to capture what changes before and after the decision both for util and fairness, as well as what causes it
 		agents = []
+		mean_fair_util = np.mean(self.discounted_su)
+		if mean_fair_util==0:
+			relative_utils = [0 for su in self.discounted_su]
+		else:
+			relative_utils = [su/mean_fair_util - 1 for su in self.discounted_su]
 		for i in range(self.n_agents):
+			h = {
+				"util":self.su[i],
+				"resource": self.resources[i],
+				"relative_util":relative_utils[i],
+				"resource_rate":self.resource_rate[i],
+				"disc_resource_rate":self.discounted_su[i],
+				"agent_score":self.agent_scores[i],
+				"about_to_get_resource":0,
+			}
+
+			#Get info about other agents
+			others = []
+			# append utils and relative_utils of all other agents
+			for j in range(self.n_agents):
+				if j!=i:
+					others.append([
+						# self.su[j],
+						relative_utils[j],
+						self.resource_rate[j],
+						self.agent_scores[j]
+					])
+			#flatten
+			others = [feature for other in others for feature in other]
+			h['other_agents'] = others
+			
+			feats = []
+			for f in self.observation_space:
+				# if it is an iterable, extend, otherwise append
+				try:
+					if len(h[f]):
+						feats.extend(h[f])
+				except:
+					feats.append(h[f])
+			
+			agents.append(feats)
+
+		return [agents, []]
+		for i in range(self.n_agents):
+			relative_util = 0
+			if mean_fair_util!=0:
+				relative_util = self.discounted_su[i]/mean_fair_util - 1
 			agent = [
 				self.agent_scores[i],
 				0, # Dummy, placeholder for whether agent gets a resource. Just for VF
 				# self.su[i],
-				self.discounted_su[i]/np.mean(self.discounted_su) - 1,
+				relative_util,
 			]
 			agents.append(agent)
 		return [agents, []]
 	
 	def render(self):
-		print("agent 1 \t agent 2")
-		print(self.su[0], "\t", self.su[1])
+		pstr = ""
+		pstr2 = ""
+		for i in range(self.n_agents):
+			pstr+="agent "+str(i+1)+"\t"
+			pstr2+=str(self.su[i])+"\t"
+		print(pstr)
+		print(pstr2)
+
+	# def get_post_decision_state_agent(self, obs, action, ind):
+	# 	state = copy.deepcopy(self.get_state())
+	# 	actions_agent = [0 for act in range(self.n_agents)]
+	# 	actions_agent[ind] = action
+	# 	self.step(actions_agent)
+	# 	pd_state, _ = self.get_obs()
+	# 	self.set_state(state)
+	# 	return pd_state[ind]
 	
+	# def get_post_decision_states(self, obs, actions):
+	# 	state = copy.deepcopy(self.get_state())
+	# 	self.step(actions)
+	# 	pd_state, _ = self.get_obs()
+	# 	self.set_state(state)
+	# 	return pd_state
+
 	def get_post_decision_state_agent(self, obs, action, idx):
 		s_i = copy.deepcopy(obs)
 		if len(s_i)>1:
-			s_i[1] += action*self.agent_scores[idx]
+			s_i[-1] = action*self.agent_scores[idx]
 		return s_i
 
 	def get_post_decision_states(self, obs, actions):
-		states = []
-		for i in range(self.n_agents):
-			s_i = self.get_post_decision_state_agent(obs[0][i], actions[i], i)
-			states.append(s_i)
-		return states
+		return [self.get_post_decision_state_agent(obs[0][i], actions[i], i) for i in range(self.n_agents)]
 	
 	def compute_best_actions(self, model, envt, obs, epsilon=0.0, beta=0.0, direction='both', use_greedy=False, val=False):
 		# Greedy strategy: Fastest agent gets the resource
@@ -120,16 +187,25 @@ class WarmStartEnvt:
 		if np.random.rand()<epsilon:
 			Qvals = [[np.random.rand() for act in range(2)] for _ in range(n_agents)]
 		else:
-			for i in range(n_agents):
-				for j in range(2):
-					s_i = self.get_post_decision_state_agent(obs[0][i], j, i)
-					Qvals[i][j] = float(model.get(np.array([s_i])))
+			if use_greedy:
+				# print("Using Greedy")
+				# Fair policy: round robin
+				res = [r for r in envt.resources]
+				min_idx = res.index(min(res))
+				# print(min_idx, res)
+				for i in range(n_agents):
+					Qvals[i][0] = 0 if i==min_idx else 1
+					Qvals[i][1] = 1 if i==min_idx else 0
+				# Qvals[0] = [0,1]
+			else:
+				for i in range(n_agents):
+					for j in range(2):
+						s_i = self.get_post_decision_state_agent(obs[0][i], j, i)
+						Qvals[i][j] = float(model.get(np.array([s_i])))
 		if val:
 			print(Qvals)
 		actions = get_assignment(Qvals, [n_agents, 1])
 		return actions
-		# One way to account for agents being able to receive more than one resource is to flip the allocation. 
-		# Each resource must receive exactly one agent
 
 
 class SimpleEnvt:
@@ -1597,21 +1673,21 @@ class PlantEnvt:
 		
 		return
 
-	def get_post_decision_state_agent(self, obs, action, ind):
-		state = copy.deepcopy(self.get_state())
-		actions_agent = [0 for act in range(self.n_agents)]
-		actions_agent[ind] = action
-		self.step(actions_agent)
-		pd_state, _ = self.get_obs()
-		self.set_state(state)
-		return pd_state[ind]
+	# def get_post_decision_state_agent(self, obs, action, ind):
+	# 	state = copy.deepcopy(self.get_state())
+	# 	actions_agent = [0 for act in range(self.n_agents)]
+	# 	actions_agent[ind] = action
+	# 	self.step(actions_agent)
+	# 	pd_state, _ = self.get_obs()
+	# 	self.set_state(state)
+	# 	return pd_state[ind]
 	
-	def get_post_decision_states(self, obs, actions):
-		state = copy.deepcopy(self.get_state())
-		self.step(actions)
-		pd_state, _ = self.get_obs()
-		self.set_state(state)
-		return pd_state
+	# def get_post_decision_states(self, obs, actions):
+	# 	state = copy.deepcopy(self.get_state())
+	# 	self.step(actions)
+	# 	pd_state, _ = self.get_obs()
+	# 	self.set_state(state)
+	# 	return pd_state
 
 	def get_valid_locations(self, envt):
 		# Get the valid locations for each agent

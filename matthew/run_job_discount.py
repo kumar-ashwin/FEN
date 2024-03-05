@@ -30,10 +30,10 @@ if not learn_utility:
 # learning_betas = [2.0, 5.0, 10.0, 20.0, 50.0]
 learning_betas = [0.05, 0.1, 0.2, 0.5, 1.0]
 warm_starts = [0]#, 5, 10]
-warm_starts = [5]
-warm_starts = [10]
+warm_starts = [1,2]
 # past_discounts = [1, 0.9, 0.5]
 past_discounts = [0.999, 0.995, 0.99]
+past_discounts = [0.9]
 for learning_beta in learning_betas:
     for warm_start in warm_starts:
         for past_discount in past_discounts:

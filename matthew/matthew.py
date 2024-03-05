@@ -21,7 +21,7 @@ from process_args import process_args
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-args, train_args = process_args(env_name='Matthew')
+args, train_args = process_args(env_name='MatthewNewMulti')
 
 if args.training and args.logging:
 	log_dir = f"logs/{args.save_path}/"
@@ -121,7 +121,7 @@ while i_episode<args.n_episode:
 			mean_val_metrics[key] = np.mean(value)
 			add_metric_to_logs(summary_writer, np.mean(value), "Validation_"+key, i_episode, logging=args.logging, verbose=True)
 
-		if  update and best_val_objective<mean_val_metrics['objective'] and i_episode>1000: #At least 1000 episodes before trying to save a best model.
+		if  update and best_val_objective<mean_val_metrics['objective'] and i_episode>500: #At least 500 episodes before trying to save a best model.
 			best_val_objective = mean_val_metrics['objective']
 			#make directory if it doesn't exist
 			os.makedirs(f"Models/{args.save_path}/best", exist_ok=True)

@@ -97,24 +97,26 @@ def get_fairness_from_su(su_prev, su_post, ftype="variance", action=None):
 
 
 #################### Logging ####################
-def add_epi_metrics_to_logs(summary_writer, rewards, losses, beta, i_episode, max_steps, verbose=False, prefix="", logging=True):
+def add_epi_metrics_to_logs(summary_writer, rewards, losses, beta, i_episode, max_steps, verbose=False, prefix="", logging=True, fair_rewards=None):
 	#Add episode's metrics to logs
 	#rewards is a list of utilities for each agent
-	variance = np.var(rewards)
-	utility = np.sum(rewards)
-	min_utility = min(rewards)
-	fairness = -variance/(np.mean(rewards)+0.0001)
-	objective = utility - beta*variance
+	system_utility = np.sum(rewards)
+	if fair_rewards is None:
+		fair_rewards = rewards
+	variance = np.var(fair_rewards)
+	min_utility = min(fair_rewards)
+	fairness = -variance/(np.mean(fair_rewards)+0.0001)
+	objective = system_utility - beta*variance
 
 	if verbose:
 		print(rewards)
 		print("Ep {:>5d} | Objective   {:>5.2f} | Beta {:>5.4f}".format(i_episode, objective, beta))
-		print("Ep {:>5d} | Utility     {:>5.2f} | Variance {:>5.2f}".format(i_episode, utility, variance))
+		print("Ep {:>5d} | Utility     {:>5.2f} | Variance {:>5.2f}".format(i_episode, system_utility, variance))
 		print("Ep {:>5d} | Min Utility {:>5.2f} | Fairness {:>5.2f}".format(i_episode, min_utility, fairness))
 
 	if logging:
 		with summary_writer.as_default():
-			tf.summary.scalar(prefix+"Utility", float(utility), step=i_episode)
+			tf.summary.scalar(prefix+"Utility", float(system_utility), step=i_episode)
 			tf.summary.scalar(prefix+"Fairness", float(fairness), step=i_episode)
 			tf.summary.scalar(prefix+"Min Utility", float(min_utility), step=i_episode)
 			tf.summary.scalar(prefix+"Variance", float(variance), step=i_episode)
@@ -124,7 +126,7 @@ def add_epi_metrics_to_logs(summary_writer, rewards, losses, beta, i_episode, ma
 				for key, value in losses.items():
 					tf.summary.scalar(prefix+key, float(value), step=i_episode)
 	
-	metrics = {'utility': utility, 'fairness': fairness, 'min_utility': min_utility, 'variance': variance, 'objective': objective}
+	metrics = {'system_utility': system_utility, 'fairness': fairness, 'min_utility': min_utility, 'variance': variance, 'objective': objective}
 	return metrics
 		
 
@@ -135,15 +137,17 @@ def add_metric_to_logs(summary_writer, metric, name, i_episode, verbose=False, l
 		with summary_writer.as_default():
 			tf.summary.scalar(name, float(metric), step=i_episode)
 
-def get_metrics_from_rewards(rewards, beta):
+def get_metrics_from_rewards(rewards, beta, fair_rewards=None):
 	#rewards is a list of utilities for each agent
-	variance = np.var(rewards)
-	utility = np.sum(rewards)
-	min_utility = min(rewards)
-	fairness = -variance/(np.mean(rewards)+0.0001)
-	objective = utility - beta*variance
+	system_utility = np.sum(rewards)
+	if fair_rewards is None:
+		fair_rewards = rewards
+	variance = np.var(fair_rewards)
+	min_utility = min(fair_rewards)
+	fairness = -variance/(np.mean(fair_rewards)+0.0001)
+	objective = system_utility - beta*variance
 	metrics = {
-		'utility': utility,
+		'system_utility': system_utility,
 		'fairness': fairness,
 		'min_utility': min_utility,
 		'variance': variance,

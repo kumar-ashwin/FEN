@@ -52,3 +52,18 @@ For the paper:
 !? Why cant the networks predict all actions at once, and we superimpose them?
 
 https://arxiv.org/pdf/2401.02552.pdf: Recent paper about long term fairness (2024)
+
+
+Warm start env:
+0. !Learning with 0 beta is not working
+1. Changed the logging, to have "system_utility" instead of "utility". This could break logging and plotting
+2. Have a generalized template for environments. Need to split system and agent utility, to allow for fairness to be less strongly coupled
+3. A TODO: Convert all domains to the same general format:
+    - !Post decision states calculated by taking a step and then resetting the environment
+        - NO!. THis is wrong. PD state should not include the reward from the next state, because of the learning scheme.
+        - Learning: loss = Q(s^) - (R(s,a) + Q(s'^))
+            s^ = s + a, s'^ = s^ + a*
+            If s^ includes R(s,a), then this equation only works if we use R(s',a*))
+        - The PD state should definitely include rewards, but it should not include the reward from the current action.
+    - Separate utility and fairness rewards. 
+    - rename discounted_su and su. Bad naming convention so far.

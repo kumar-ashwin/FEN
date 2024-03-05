@@ -21,7 +21,7 @@ from process_args import process_args
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-args, train_args = process_args(env_name='JobNoOccupy')
+args, train_args = process_args(env_name='JobNoOccupyWarmStartSimple')
 
 if args.training and args.logging:
 	log_dir = f"logs/{args.save_path}/"

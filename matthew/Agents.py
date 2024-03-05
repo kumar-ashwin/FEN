@@ -353,7 +353,12 @@ class DDQNAgent():
 			# print(opt_actions)
 			new_pd_states = self.envt.get_post_decision_states(succ_obs, opt_actions)
 			
+
 			td_rewards = np.array(rewards)
+			# print("OPT Action", opt_actions)
+			# for i in range(n_agents):
+			# 	print("Agent", i, "\n", pd_state[i], "\n", new_pd_states[i], "\n", td_rewards[i])
+				# *Remember, the pd_state should not include the reward for the action, that is rewards
 			# print("Rewards", rewards, sum(rewards))
 			# if sum(f_rewards)>0:
 			# 	print("F_Rewards", f_rewards, sum(f_rewards), self.learning_beta)

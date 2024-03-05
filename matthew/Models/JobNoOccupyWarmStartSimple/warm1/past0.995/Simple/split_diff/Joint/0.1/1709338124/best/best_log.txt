@@ -1,0 +1,45 @@
+Validation Utility: 90.96
+Validation Fairness: -67.91032551361539
+Validation Min Utility: 0.0
+Validation Objective: -76.79050000000001
+Validation Variance: 1677.505
+Episode: 200
+Epsilon: 0.33026203955355027
+Arguments:
+greedy: False
+training: True
+reallocate: False
+central_rewards: False
+simple_obs: True
+logging: True
+SI_beta: 0
+learning_beta: 0.1
+fairness_type: split_diff
+tag: warm1/past0.995
+env_name: JobNoOccupyWarmStartSimple
+warm_start: 1.0
+past_discount: 0.995
+n_episode: 1000
+max_steps: 100
+render: False
+save_path: JobNoOccupyWarmStartSimple/warm1/past0.995/Simple/split_diff/Joint/0.1/1709338124
+Training Arguments:
+hidden_size: 20
+learning_rate: 0.0003
+replay_buffer_size: 250000
+model_update_freq: 50
+target_update_freq: 20
+model_save_freq: 100
+validation_freq: 10
+best_model_update_freq: 100
+GAMMA: 0.98
+model_loc: 
+u_model_loc: 
+f_model_loc: 
+split: False
+learn_fairness: True
+learn_utility: True
+multi_head: False
+phased_training: False
+phase_length: 200
+learning_beta: 0.1
