@@ -31,9 +31,9 @@ else:
 	summary_writer = None
 
 # Env params
-n_agents = 5
+n_agents = 1
 n_resources = 8
-gridsize = 12
+gridsize = 8
 M = PlantEnvt(n_agents=n_agents, gridsize=gridsize, n_resources=n_resources, reallocate=args.reallocate, simple_obs=args.simple_obs, warm_start=args.warm_start, past_discount=args.past_discount)
 M_train = copy.deepcopy(M)
 M_val = copy.deepcopy(M)
@@ -48,7 +48,7 @@ num_features = len(obs[0][0])
 agent = get_agent(train_args, args.training, num_features, M_train)
 
 best_val_objective = -100000.0
-run_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
+run_metrics = {'system_utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 
 while i_episode<args.n_episode:
 	i_episode+=1
@@ -69,7 +69,8 @@ while i_episode<args.n_episode:
 	while steps<args.max_steps:
 		steps+=1
 		#For each agent, select the action: central allocation
-		use_greedy = True if i_episode<100 else False
+		use_greedy = True if i_episode<40 else False
+		ep_epsilon = 0 if use_greedy else ep_epsilon
 		util, obs = take_env_step(M, agent, obs, steps, ep_epsilon, args, use_greedy=use_greedy)
 		score += util
 		
@@ -101,7 +102,7 @@ while i_episode<args.n_episode:
 		mult = 25 if update else 1
 
 		#Run validation episodes with the current policy
-		val_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
+		val_metrics = {'system_utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 		for val_eps in range(1*mult):
 			M_val.reset()
 			obs = M_val.get_obs()
@@ -128,7 +129,7 @@ while i_episode<args.n_episode:
 			print("Saved best model")
 			#Write the logs to a file
 			with open(f"Models/{args.save_path}/best/best_log.txt", "w") as f:
-				f.write(f"Validation Utility: {mean_val_metrics['utility']}\n")
+				f.write(f"Validation Utility: {mean_val_metrics['system_utility']}\n")
 				f.write(f"Validation Fairness: {mean_val_metrics['fairness']}\n")
 				f.write(f"Validation Min Utility: {mean_val_metrics['min_utility']}\n")
 				f.write(f"Validation Objective: {mean_val_metrics['objective']}\n")
@@ -154,7 +155,7 @@ if args.training:
 
 
 	#Run validation episodes with the current policy
-	val_metrics = {'utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
+	val_metrics = {'system_utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 	for val_eps in range(num_eps):
 		M_val.reset()
 		obs = M_val.get_obs()

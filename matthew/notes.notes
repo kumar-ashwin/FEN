@@ -32,6 +32,14 @@ For matthew:
     5. Generally, need to think about the fairness reward. Do we want the fair agent to learn from F(s) - (R_f + F(s')) or \beta*(F(s) - (R_f + F(s'))? Does it make a difference in the split agent? It should make a difference in the multi-head agent.
 !Other thing to check: The num_samples is just 32 and num_min_samples is 1000/num_agents. Update freq is 100, so we are horribly underutilizing experiences
 
+Plant domain:
+    1. Fixed one issue with the reward not being properly transmitted (np array dtype issue)
+    2. The model still does not learn anything
+        Still does not learn anything if requirement is [0,1,0]. Should have been easier. 
+        >0, but still very poor. Could have been ~40 in this case.
+    3. Found issues with the post-decision state. It wasn't taking into account relative positions
+        Still not learning.
+    4. Removing 'loc' seems to make it worse.
 
 For the paper:
 1. The importance of past discounting and warm starts. Could use a section with some experiments about it.
@@ -67,3 +75,17 @@ Warm start env:
         - The PD state should definitely include rewards, but it should not include the reward from the current action.
     - Separate utility and fairness rewards. 
     - rename discounted_su and su. Bad naming convention so far.
+    - 
+4. An issue with the normalized discounted_su is that the magnitude is too small
+
+Come up with a way to scale the f_reward automatically to be in the correct range?
+
+
+QOL improvements
+Sync this to a gym env setting
+! Look into imitation learning
+! TODO: For final validation, load best model. Will make life easier
+Add a loader for environment, and make environment arguments part of argument parser
+    Will allow a single file to be used for all experiments
+Create an evaluation file. Load best models and evalaute them
+

@@ -358,8 +358,9 @@ class DDQNAgent():
 			# print("OPT Action", opt_actions)
 			# for i in range(n_agents):
 			# 	print("Agent", i, "\n", pd_state[i], "\n", new_pd_states[i], "\n", td_rewards[i])
-				# *Remember, the pd_state should not include the reward for the action, that is rewards
+			# 	# *Remember, the pd_state should not include the reward for the action, that is rewards
 			# print("Rewards", rewards, sum(rewards))
+			# print("F_Rewards", [f*self.learning_beta for f in f_rewards], self.learning_beta)
 			# if sum(f_rewards)>0:
 			# 	print("F_Rewards", f_rewards, sum(f_rewards), self.learning_beta)
 			if self.learning_beta>0:

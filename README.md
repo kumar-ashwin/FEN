@@ -1,5 +1,15 @@
 # Installation
 
+Requirements
+- python 3.7
+- tensorflow 2.12.0
+- matplotlib
+- gurobipy
+- transformers
+- plotly
+- pandas
+- ipykernel
+
 Python 3.7, tensorflow 2.12.0 matplotlib, gurobipy, transformers
 For tf on linux: https://www.tensorflow.org/install/pip
 On windows, tf 2.10 is the last version supported for GPU. Run on CPU if needed.

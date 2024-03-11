@@ -76,7 +76,7 @@ while i_episode<args.n_episode:
 			time.sleep(0.1)
 	
 	losses_dict = post_episode_hk(agent, losses, i_episode, train_args, args)
-	epi_metrics = add_epi_metrics_to_logs(summary_writer, M.su, losses_dict, args.learning_beta, i_episode, args.max_steps, verbose=True, prefix="", logging=args.logging, fair_rewards=M.resources)
+	epi_metrics = add_epi_metrics_to_logs(summary_writer, M.su, losses_dict, args.learning_beta, i_episode, args.max_steps, verbose=True, prefix="", logging=args.logging, fair_rewards=M.resource_rate)
 	print("Epsilon", ep_epsilon)
 	if args.training:
 		print("VF Loss", losses_dict["Value_Loss"])
@@ -107,7 +107,7 @@ while i_episode<args.n_episode:
 				score+=util
 
 			print(M_val.su)
-			metrics = get_metrics_from_rewards(M_val.su, args.learning_beta)
+			metrics = get_metrics_from_rewards(M_val.su, args.learning_beta, fair_rewards=M_val.resource_rate)
 			for key, value in metrics.items():
 				val_metrics[key].append(value)
 		
@@ -169,7 +169,7 @@ if args.training:
 			M_val.render()
 
 		print(M_val.su)
-		metrics = get_metrics_from_rewards(M_val.su, args.learning_beta)
+		metrics = get_metrics_from_rewards(M_val.su, args.learning_beta, fair_rewards=M_val.resource_rate)
 		for key, value in metrics.items():
 			val_metrics[key].append(value)
 	

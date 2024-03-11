@@ -43,6 +43,7 @@ class WarmStartEnvt:
 		"""
 		Agents have different utility they get from resources
 		Fairness objective is not for the agents to get the same utility, but for the agents to get the same amount of resources
+		No One agent is guaranteed to get the resource in each step
 		"""
 		self.n_agents = n_agents
 		self.warm_start = warm_start
@@ -173,7 +174,7 @@ class WarmStartEnvt:
 	def get_post_decision_state_agent(self, obs, action, idx):
 		s_i = copy.deepcopy(obs)
 		if len(s_i)>1:
-			s_i[-1] = action*self.agent_scores[idx]
+			s_i[-1] = action#*self.agent_scores[idx]
 		return s_i
 
 	def get_post_decision_states(self, obs, actions):
@@ -1454,6 +1455,8 @@ class PlantEnvt:
 		self.past_discount = past_discount
 
 		self.observation_space = ['loc', 'relative_util', 'posessions', 'requirements', 'resources']
+		self.observation_space = ['relative_util', 'needs', 'resources']
+		self.observation_space = ['relative_util', 'needs', 'resources']
 		self.reset()
 	
 	def reset(self):
@@ -1476,13 +1479,16 @@ class PlantEnvt:
 
 		# generate resources
 		resources = []
-		resource_types = []
+		# resource_types = []
 		for i in range(self.n_resources):
 			loc = np.random.randint(1,self.gridsize-1,2)
 			resources.append(loc)
-			resource_types.append(np.random.randint(3))
-
+			# resource_types.append(np.random.randint(3))
+		
+		resource_types = [0,1,2]*20
+		resource_types = resource_types[:self.n_resources]
 		requirements=[[2, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 0], [0, 1, 2]]
+		# requirements=[[0, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 0], [0, 1, 2]]
 
 		self.ant = ant
 		self.targets = [None]*self.n_agents
@@ -1537,9 +1543,9 @@ class PlantEnvt:
 	# Each action is one of [stay, up, down, left, right], and is mapped to a unique grid lcoation
 	def step(self, actions):
 		# actions[i] is the action taken by agent i
-		re = [0]*self.n_agents  #rewards. If an agent constructs a unit, get a reward of one.
+		re = [0.]*self.n_agents  #rewards. If an agent constructs a unit, get a reward of one.
 		# Shaping reward 
-		re_shaping = np.array([0]*self.n_agents)
+		re_shaping = np.array([0.]*self.n_agents)
 		newgrid = np.zeros((self.gridsize, self.gridsize))
 		consumed_resources = []
 		for i in range(self.n_agents):
@@ -1555,12 +1561,15 @@ class PlantEnvt:
 						consumed_resources.append(j)
 						r_type = self.resource_types[j]
 						self.posessions[i][r_type]+=1
+						# print("Picked up resource", r_type)
+						# print(self.posessions[i], self.requirements[i])
+
 						if self.posessions[i][r_type]<=self.requirements[i][r_type]:
-							re_shaping[i]+=0.1		
+							re_shaping[i]+=0.3
 		#replenish consumed resources
 		for j in consumed_resources:
 			self.resources[j] = np.random.randint(1,self.gridsize-1,2)
-			self.resource_types[j] = np.random.randint(3)
+			# self.resource_types[j] = np.random.randint(3) #Not changing resouce type.
 		
 		# Construct units
 		for i in range(self.n_agents):
@@ -1577,7 +1586,7 @@ class PlantEnvt:
 				self.posessions[i][j]-=self.requirements[i][j]*n_units
 
 		self.su+=np.array(re)
-		re_return = np.array(re) + re_shaping 		
+		re_return = np.array(re) + re_shaping
 		#Update the discounted utilities
 		self.discounted_su = self.discounted_su*self.past_discount + np.array(re)
 
@@ -1590,6 +1599,10 @@ class PlantEnvt:
 					dist = get_distance(self.ant[i], self.resources[j])
 					if dist<closest_useful:
 						closest_useful = dist
+			if closest_useful==100000:
+				print("No useful resource???s")
+				print(self.posessions[i], self.requirements[i])
+				print(self.resources, self.resource_types)
 			re_return[i] += -0.01*closest_useful
 		
 		return re_return
@@ -1624,6 +1637,7 @@ class PlantEnvt:
 				"relative_util":self.discounted_su[i]/np.mean(self.discounted_su) - 1,
 				"posessions":self.posessions[i],
 				"requirements":self.requirements[i],
+				"needs":[r-p for r,p in zip(self.requirements[i], self.posessions[i])],
 				"resources":closest_locs,
 			}
 
@@ -1688,7 +1702,28 @@ class PlantEnvt:
 	# 	pd_state, _ = self.get_obs()
 	# 	self.set_state(state)
 	# 	return pd_state
+	def get_post_decision_state_agent(self, state, action, idx):
+		s_i = copy.deepcopy(state)
+		# Need to also correct the location of the resources
+		if action!=-1:
+			new_x, new_y = self.pre_move(s_i[:2], action)
+			new_loc = [new_x, new_y]
+			#apply action
+			if self.observation_space[0]=='loc':
+				s_i[0] = new_x 
+				s_i[1] = new_y
+			# Change the relative loc of the resources
+			if 'resources' in self.observation_space:
+				if self.observation_space[-1]=='resources':
+					closest_resource, distances = self.get_closest_resources_by_type(new_loc, self.resources, self.resource_types)
+					closest_locs = [coord for loc in closest_resource for coord in loc]
+					for k in range(len(closest_locs)):
+						s_i[-len(closest_locs)+k] = closest_locs[k]
+		return s_i
 
+	def get_post_decision_states(self, obs, actions):
+		return [self.get_post_decision_state_agent(obs[0][i], actions[i], i) for i in range(self.n_agents)]
+	
 	def get_valid_locations(self, envt):
 		# Get the valid locations for each agent
 		# obs is the observation of the environment

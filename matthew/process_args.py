@@ -153,9 +153,30 @@ class TrainingArguments():
 
 
 
-def process_args(env_name):
-    parser = transformers.HfArgumentParser((RunArguments, TrainingArguments))
-    run_args, training_args = parser.parse_args_into_dataclasses()
+# def process_args(env_name):
+def process_args(env_name, config_file=None, load_default=False):
+    if load_default:
+        run_args = RunArguments()
+        training_args = TrainingArguments()
+    elif config_file is not None and os.path.isfile(config_file):
+        config = configparser.ConfigParser()
+        config.read(config_file)
+
+        # Parse arguments from config file
+        run_args = RunArguments()
+        training_args = TrainingArguments()
+
+        if 'RunArguments' in config:
+            for key, value in config['RunArguments'].items():
+                setattr(run_args, key, value)
+
+        if 'TrainingArguments' in config:
+            for key, value in config['TrainingArguments'].items():
+                setattr(training_args, key, value)
+    else:
+        # Parse arguments from command line
+        parser = transformers.HfArgumentParser((RunArguments, TrainingArguments))
+        run_args, training_args = parser.parse_args_into_dataclasses()
 
     run_args.env_name = env_name
     # Process run arguments
