@@ -1,3 +1,14 @@
+Making a new environment:
+    add  super init
+    self.state_variables = [] # List of state variable names (str). Will be used to get and set state
+    self.fairness_vars 
+    remove get_state and set_state
+    add get_stateful_observation
+    remove get_obs
+    implement get_post_decision_state_agent
+    remove get_post_decision_state
+    implement compute_best_decision
+
 For the job environment:
 What works
 1. Able to train with the agent constraint environment- you cannot move into a space that was occupied at t-1 (unless you stay)
