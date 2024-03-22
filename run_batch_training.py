@@ -1,20 +1,25 @@
 import os
 import json
 
-params = {
-    "split": False,
-    "learn_fairness": True,
-    "learn_utility": True,
-    "multi_head": False,
-    "logging": True,
-    "render": False,
-    "simple_obs": False,
-    "SI_beta": 0,
-    "fairness_type": "split_diff",
-    "tag": "",
-    "env_name": "Plant",
-    "env_name_mod": ""
-}
+# add argument processing
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--env_name", type=str, default="WarmStart")
+parser.add_argument("--env_name_mod", type=str, default="")
+parser.add_argument("--split", type=bool, default=False)
+parser.add_argument("--learn_fairness", type=bool, default=True)
+parser.add_argument("--learn_utility", type=bool, default=True)
+parser.add_argument("--multi_head", type=bool, default=False)
+parser.add_argument("--logging", type=bool, default=True)
+parser.add_argument("--render", type=bool, default=False)
+parser.add_argument("--simple_obs", type=bool, default=False)
+parser.add_argument("--SI_beta", type=int, default=0)
+parser.add_argument("--fairness_type", type=str, default="split_diff")
+parser.add_argument("--tag", type=str, default="")
+args = parser.parse_args()
+
+params = vars(args)
 
 with open(f"hyperparams.json") as f:
     hyperparams = json.load(f)[params["env_name"]]
