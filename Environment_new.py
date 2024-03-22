@@ -735,7 +735,7 @@ class NewJobSchedulingEnvt(MACEnv):
 			loc = np.random.randint(0,self.gridsize,2)
 			while self.grid[loc[0],loc[1]]!=0:
 				loc = np.random.randint(0,self.gridsize,2)
-			ant.append(np.random.randint(0,self.gridsize,2)) # TODO: Check. This probably needs fixing.
+			ant.append(loc)
 			self.grid[ant[i][0],ant[i][1]]=i+1
 		ant = np.array(ant)
 
@@ -1517,6 +1517,9 @@ class OldPlantEnvt(MACEnv):
 
 
 class PlantEnvt(MACEnv):
+	"""
+	The resource allocation version of the environment. Each agent describes preferences over different resources, and the allocation matches them to one.
+	"""
 	def __init__(self, 
 			n_agents=5,
 			gridsize=12,
@@ -1908,7 +1911,7 @@ class PlantEnvt(MACEnv):
 
 		# Shift actions by 1
 		actions = [act-1 for act in actions]
-		if self.external_trigger:
-			print(actions)
+		# if self.external_trigger:
+		# 	print(actions)
 		return actions
 	

@@ -36,7 +36,6 @@ agent = get_agent(train_args, args.training, num_features, M_train)
 best_val_objective = -100000.0
 run_metrics = {'system_utility':[], 'fairness':[], 'min_utility':[], 'objective':[],'variance':[]}
 
-
 # while i_episode<args.n_episode:
 for i_episode in range(1, args.n_episode+1):
 	ep_epsilon = eps.decay()
@@ -89,8 +88,8 @@ for i_episode in range(1, args.n_episode+1):
 		update = i_episode%train_args.best_model_update_freq==0
 		num_epochs = 25 if update else 1
 
-		# val_metrics = run_validation(num_epochs, M_val, agent, args, render=args.render)
-		val_metrics = run_validation(num_epochs, M_val, agent, args, render=True)
+		val_metrics = run_validation(num_epochs, M_val, agent, args, render=args.render)
+		# val_metrics = run_validation(num_epochs, M_val, agent, args, render=True)
 		
 		mean_val_metrics = {}
 		for key, value in val_metrics.items():
@@ -105,6 +104,8 @@ for i_episode in range(1, args.n_episode+1):
 
 # Final round of validation and saving results
 if args.training:
+	#load best model
+	agent.load_model(f"Models/{args.save_path}/best/best_model.ckpt")
 	#set selected VF to 0
 	agent.set_active_net(0)
 	print("Final Validation")

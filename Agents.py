@@ -65,7 +65,7 @@ class ValueNetwork():
 			self.rollout = tf.compat.v1.placeholder(shape=[None], dtype=tf.float32)
 			# self.loss = tf.compat.v1.losses.mean_squared_error(self.output, self.rollout)
 			#Huber loss
-			self.loss = tf.compat.v1.losses.huber_loss(self.output, self.rollout)
+			self.loss = tf.compat.v1.losses.mean_squared_error(self.output, self.rollout)
 			self.grad_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
 			self.minimize = self.grad_optimizer.minimize(self.loss)
 
@@ -584,8 +584,8 @@ class MultiHeadValueNetwork():
 			self.rollout_util = tf.compat.v1.placeholder(shape=[None], dtype=tf.float32)
 
 			#Huber loss
-			self.loss_fair = tf.compat.v1.losses.huber_loss(self.output_fair, self.rollout_fair)
-			self.loss_util = tf.compat.v1.losses.huber_loss(self.output_util, self.rollout_util)
+			self.loss_fair = tf.compat.v1.losses.mean_squared_error(self.output_fair, self.rollout_fair)
+			self.loss_util = tf.compat.v1.losses.mean_squared_error(self.output_util, self.rollout_util)
 
 			self.grad_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
 			self.minimize_fair = self.grad_optimizer.minimize(self.loss_fair)
@@ -750,6 +750,10 @@ class MultiHeadDDQNAgent():
 		# Note: SI beta not supported, always steps with beta=0
 		f_losses = []
 		u_losses = []
+		f_states = []
+		u_states = []
+		f_target_values = []
+		u_target_values = []
 		for experience in experiences:
 			#Compute best action
 			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
@@ -771,16 +775,26 @@ class MultiHeadDDQNAgent():
 				else:
 					target_values_fair = np.array([td_rewards_fair[i] + self.GAMMA * double_target.get_fair(np.array([new_pd_states[i]])) for i in range(n_agents)])
 				target_values_fair = target_values_fair.reshape(-1)
-				f_loss = net.update_fair_head(states, target_values_fair)
-				f_losses.append(f_loss)
+				f_states.extend(states)
+				f_target_values.extend(target_values_fair)
+				# f_loss = net.update_fair_head(states, target_values_fair)
+				# f_losses.append(f_loss)
 			if self.learn_utility:
 				if done:
 					target_values_util = td_rewards_util
 				else:
 					target_values_util = np.array([td_rewards_util[i] + self.GAMMA * double_target.get_util(np.array([new_pd_states[i]])) for i in range(n_agents)])
 				target_values_util = target_values_util.reshape(-1)
-				u_loss = net.update_util_head(states, target_values_util)
-				u_losses.append(u_loss)
+				u_states.extend(states)
+				u_target_values.extend(target_values_util)
+				# u_loss = net.update_util_head(states, target_values_util)
+				# u_losses.append(u_loss)
+		if self.learn_fairness:
+			f_loss = net.update_fair_head(f_states, np.array(f_target_values))
+			f_losses.append(f_loss)
+		if self.learn_utility:
+			u_loss = net.update_util_head(u_states, np.array(u_target_values))
+			u_losses.append(u_loss)
 
 		return f_losses, u_losses
 

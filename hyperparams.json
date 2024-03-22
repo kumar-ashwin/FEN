@@ -1,0 +1,59 @@
+{
+    "Matthew":
+    {
+        "simple_obs": false,
+        "n_episode": 1500,
+        "max_steps": 500,
+        "learning_rate": 0.0003,
+        "model_update_freq": 50,
+        "best_model_update_freq": 100,
+        "model_save_freq": 100,
+        "hidden_size": 20,
+        "tag": "Main1500",
+        "warm_start": 50
+    },
+    "Job":
+    {
+        "simple_obs": false,
+        "n_episode": 1000,
+        "max_steps": 100,
+        "learning_rate": 0.0003,
+        "warm_start": 10
+    },
+    "Plant":
+    {
+        "simple_obs": false,
+        "n_episode": 1000,
+        "max_steps": 100,
+        "learning_rate": 0.0003,
+        "hidden_size": 20,
+        "model_update_freq": 50,
+        "best_model_update_freq": 100,
+        "model_save_freq": 100,
+        "warm_start": 3
+    },
+    "WarmStart":
+    {
+        "simple_obs": true,
+        "n_episode": 200,
+        "max_steps": 100,
+        "learning_rate": 0.0003,
+        "hidden_size": 20,
+        "model_update_freq": 20,
+        "best_model_update_freq": 20,
+        "model_save_freq": 20,
+        "warm_start": 10
+    },
+    "Simple":
+    {
+        "simple_obs": false,
+        "n_episode": 100,
+        "max_steps": 100,
+        "learning_rate": 0.0003,
+        "hidden_size": 20,
+        "model_update_freq": 20,
+        "best_model_update_freq": 20,
+        "model_save_freq": 20,
+        "warm_start": 50
+    }
+}

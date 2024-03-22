@@ -24,18 +24,18 @@ What works
     // 1. The fairness rewards are tiny (~10^-17)
     2. Important note. The fairness reward was calculated assuming the agents immediately received the reward. 
         // !su_post was calculated in a hacky way for matthew. This might fail now!
-    3. !TODO - The Agent's location when reset is badly done. There seems to be a bug, it is possible that 2 agents land in the same spot
+    // 3. !TODO - The Agent's location when reset is badly done. There seems to be a bug, it is possible that 2 agents land in the same spot
 
  What does not work:
     Allowing all locations in the ILP with a resource constraint fails to learn to be fair.
     Also, there is basically no tradeoff for fairness, the default greedy strategy just lets agents switch in and out without cost
 
 For matthew:
-1. The validation utilities have this weird pattern: the last 4 agents consistently get higher utility??
-    Figure out why. There should be no reason for this to happen.
-        Well, that is because I made the environment to be that way. The last 4 agents are of a different type.
+// 1. The validation utilities have this weird pattern: the last 4 agents consistently get higher utility??
+    // Figure out why. There should be no reason for this to happen.
+        // Well, that is because I made the environment to be that way. The last 4 agents are of a different type.
     2. higher lr seems beteter (0.0003)
-    3. One way to make this faster, and the tradeoff more meaningful, is to reduce the number of steps per epoch.
+    // 3. One way to make this faster, and the tradeoff more meaningful, is to reduce the number of steps per epoch.
     4. !In multi-agent, beta=0 learning is poor. Figure out why (this seems to be a general thing)
         - Option 1: If learning_beta=0, set learn_fairness to false. It is likely that the model still tries to update the fairness loss, as beta is used nowhere in the update
         - Option 2: If learning_beta=0, set the fairness reward to 0. This is likely the same as option 1, but it is a more direct approach: Suggested by copilot
@@ -96,16 +96,21 @@ Come up with a way to scale the f_reward automatically to be in the correct rang
 QOL improvements
 Sync this to a gym env setting
 ! Look into imitation learning
-! TODO: For final validation, load best model. Will make life easier
-Add a loader for environment, and make environment arguments part of argument parser
-    Will allow a single file to be used for all experiments
-Create an evaluation file. Load best models and evalaute them
+// ! TODO: For final validation, load best model. Will make life easier
+// Add a loader for environment, and make environment arguments part of argument parser
+    // Will allow a single file to be used for all experiments
+// Create an evaluation file. Load best models and evalaute them
 
 
 Environment updates:
-1. create a function to get the fairness rewads distribution
-2. Create a function to get the features for each agent. This will be different for each environment
-3. Do I need set_state in agent update?? Could just save new_obs in experience?
-    Yes, because the trasnsition needs to be computed in the agent update. Transition is not computed using Observation
+// 1. create a function to get the fairness rewads distribution
+// 2. Create a function to get the features for each agent. This will be different for each environment
+// 3. Do I need set_state in agent update?? Could just save new_obs in experience?
+//     Yes, because the trasnsition needs to be computed in the agent update. Transition is not computed using Observation
 
 !! Important fix: All agents need to update from combined experiences not just one at a time
+
+For agents:
+1. !! There seems to be no reason to use Huber loss, so changing it to MSE.
+2. !! TODO: Update the classes to tf2
+3. Updated all agent classes to only back propagate once with all experiences
