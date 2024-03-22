@@ -14,7 +14,7 @@
     },
     "Job":
     {
-        "simple_obs": false,
+        "simple_obs": true,
         "n_episode": 1000,
         "max_steps": 100,
         "learning_rate": 0.0003,
