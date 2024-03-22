@@ -36,12 +36,12 @@ if not params["learn_utility"]:
     else:
         exit()
         
-learning_betas = [0.0]#, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
+learning_betas = [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
 for learning_beta in learning_betas:
     func = f"""python training.py --learning_beta {learning_beta}"""
     for key, value in params.items():
         if value is None or value is "":
             continue
         func += f""" --{key} {value} """
-    print(func)
+    # print(func)
     os.system(func)
