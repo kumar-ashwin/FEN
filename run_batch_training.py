@@ -17,6 +17,7 @@ parser.add_argument("--simple_obs", type=str, default="False")
 parser.add_argument("--SI_beta", type=int, default=0)
 parser.add_argument("--fairness_type", type=str, default="split_diff")
 parser.add_argument("--tag", type=str, default="")
+parser.add_argument("--u_model_loc", type=str, default="")
 args = parser.parse_args()
 
 params = vars(args)
@@ -34,11 +35,20 @@ if not params["learn_utility"]:
     if params["multi_head"]:
         print("Multihead not supported for learn_utility=False")
         exit()
-    if params["simple_obs"]:
+    if params["u_model_loc"] == "":
+        print("Must provide u_model_loc when learn_utility=False")
         exit()
-        params["u_model_loc"] = ""
-    else:
-        exit()
+    print("Loading model from ", params["u_model_loc"])
+    # if params["simple_obs"]:
+    #     params["u_model_loc"] = 
+    #     # exit()
+    # else:
+    #     params["u_model_loc"] = 
+    #     # exit()
+else:
+    if params["u_model_loc"] != "":
+        print("Ignoring u_model_loc when learn_utility=True")
+    params["u_model_loc"] = ""
         
 learning_betas = [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
 for learning_beta in learning_betas:
