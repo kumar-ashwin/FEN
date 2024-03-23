@@ -7,19 +7,23 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--env_name", type=str, default="WarmStart")
 parser.add_argument("--env_name_mod", type=str, default="")
-parser.add_argument("--split", type=bool, default=False)
-parser.add_argument("--learn_fairness", type=bool, default=True)
-parser.add_argument("--learn_utility", type=bool, default=True)
-parser.add_argument("--multi_head", type=bool, default=False)
-parser.add_argument("--logging", type=bool, default=True)
-parser.add_argument("--render", type=bool, default=False)
-parser.add_argument("--simple_obs", type=bool, default=False)
+parser.add_argument("--split", type=str, default="False")
+parser.add_argument("--learn_fairness", type=str, default="True")
+parser.add_argument("--learn_utility", type=str, default="True")
+parser.add_argument("--multi_head", type=str, default="False")
+parser.add_argument("--logging", type=str, default="True")
+parser.add_argument("--render", type=str, default="False")
+parser.add_argument("--simple_obs", type=str, default="False")
 parser.add_argument("--SI_beta", type=int, default=0)
 parser.add_argument("--fairness_type", type=str, default="split_diff")
 parser.add_argument("--tag", type=str, default="")
 args = parser.parse_args()
 
 params = vars(args)
+#Handle boolean arguments
+for k,v in params.items():
+    if v == "True" or v == "False":
+        params[k] = v == "True"
 
 with open(f"hyperparams.json") as f:
     hyperparams = json.load(f)[params["env_name"]]
