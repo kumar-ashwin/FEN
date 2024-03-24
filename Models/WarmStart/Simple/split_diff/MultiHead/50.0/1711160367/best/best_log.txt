@@ -1,0 +1,46 @@
+Validation Utility: 19.4
+Validation Fairness: -0.022571976967370438
+Validation Min Utility: 0.03
+Validation Objective: 19.341199999999997
+Validation Variance: 0.0011759999999999997
+Episode: 20
+Epsilon: 0.6008471745795848
+Arguments:
+greedy: False
+training: True
+reallocate: False
+central_rewards: False
+simple_obs: True
+logging: True
+env_name: WarmStart
+env_name_mod: 
+SI_beta: 0
+learning_beta: 50.0
+fairness_type: split_diff
+tag: 
+warm_start: 10.0
+past_discount: 0.995
+n_episode: 200
+max_steps: 100
+render: False
+save_path: WarmStart//Simple/split_diff/MultiHead/50.0/1711160367
+Training Arguments:
+hidden_size: 20
+learning_rate: 0.0003
+replay_buffer_size: 250000
+model_update_freq: 20
+target_update_freq: 20
+model_save_freq: 20
+validation_freq: 10
+best_model_update_freq: 20
+GAMMA: 0.98
+model_loc: 
+u_model_loc: 
+f_model_loc: 
+split: True
+learn_fairness: True
+learn_utility: True
+multi_head: True
+phased_training: False
+phase_length: 200
+learning_beta: 50.0
