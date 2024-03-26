@@ -2,14 +2,14 @@
     "Matthew":
     {
         "simple_obs": false,
-        "n_episode": 1500,
-        "max_steps": 500,
+        "n_episode": 1000,
+        "max_steps": 200,
         "learning_rate": 0.0003,
         "model_update_freq": 50,
         "best_model_update_freq": 100,
         "model_save_freq": 100,
         "hidden_size": 20,
-        "tag": "Main1500",
+        "tag": "200step_1000ep",
         "warm_start": 50
     },
     "Job":
