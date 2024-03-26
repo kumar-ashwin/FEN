@@ -167,7 +167,7 @@ class WarmStartEnvt(MACEnv):
 				"resource_rate":self.resource_rate[i],
 				"disc_resource_rate":self.discounted_su[i],
 				"agent_score":self.agent_scores[i],
-				"about_to_get_resource":0,
+				"about_to_get_resource":-1,
 			}
 
 			#Get info about other agents
@@ -228,7 +228,7 @@ class WarmStartEnvt(MACEnv):
 						Qvals[i][j] = float(model.get(np.array([s_i])))
 		if val:
 			print(Qvals)
-		actions = get_assignment(Qvals, [n_agents, 1])
+		actions = get_assignment(Qvals, [n_agents-1, 1])
 		return actions
 
 

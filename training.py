@@ -105,7 +105,13 @@ for i_episode in range(1, args.n_episode+1):
 # Final round of validation and saving results
 if args.training:
 	#load best model
-	agent.load_model(f"Models/{args.save_path}/best/best_model.ckpt")
+	if train_args.split and not train_args.multi_head:
+		if train_args.learn_utility:
+			agent.load_util_model(f"Models/{args.save_path}/best/best_model.ckpt_util")
+		if train_args.learn_fairness:
+			agent.load_fair_model(f"Models/{args.save_path}/best/best_model.ckpt_fair")
+	else:
+		agent.load_model(f"Models/{args.save_path}/best/best_model.ckpt")
 	#set selected VF to 0
 	agent.set_active_net(0)
 	print("Final Validation")

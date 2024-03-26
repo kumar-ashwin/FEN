@@ -381,12 +381,12 @@ class DDQNAgent():
 			# if any(r<-10 for r in rewards):
 			# 	print("Logs", pd_state, "TV:", target_values, "OPT:", opt_actions)
 			
-			all_states.extend(states)
-			all_target_values.extend(target_values)
-			# loss = net.update(states, target_values)
-			# losses.append(loss)
-		loss = net.update(all_states, all_target_values)
-		losses.append(loss)
+			# all_states.extend(states)
+			# all_target_values.extend(target_values)
+			loss = net.update(states, target_values)
+			losses.append(loss)
+		# loss = net.update(all_states, all_target_values)
+		# losses.append(loss)
 		return losses
 	
 	def update(self, num_samples, num_min_samples=100000):
@@ -777,8 +777,8 @@ class MultiHeadDDQNAgent():
 				target_values_fair = target_values_fair.reshape(-1)
 				f_states.extend(states)
 				f_target_values.extend(target_values_fair)
-				# f_loss = net.update_fair_head(states, target_values_fair)
-				# f_losses.append(f_loss)
+				f_loss = net.update_fair_head(states, target_values_fair)
+				f_losses.append(f_loss)
 			if self.learn_utility:
 				if done:
 					target_values_util = td_rewards_util
@@ -787,14 +787,14 @@ class MultiHeadDDQNAgent():
 				target_values_util = target_values_util.reshape(-1)
 				u_states.extend(states)
 				u_target_values.extend(target_values_util)
-				# u_loss = net.update_util_head(states, target_values_util)
-				# u_losses.append(u_loss)
-		if self.learn_fairness:
-			f_loss = net.update_fair_head(f_states, np.array(f_target_values))
-			f_losses.append(f_loss)
-		if self.learn_utility:
-			u_loss = net.update_util_head(u_states, np.array(u_target_values))
-			u_losses.append(u_loss)
+				u_loss = net.update_util_head(states, target_values_util)
+				u_losses.append(u_loss)
+		# if self.learn_fairness:
+		# 	f_loss = net.update_fair_head(f_states, np.array(f_target_values))
+		# 	f_losses.append(f_loss)
+		# if self.learn_utility:
+		# 	u_loss = net.update_util_head(u_states, np.array(u_target_values))
+		# 	u_losses.append(u_loss)
 
 		return f_losses, u_losses
 

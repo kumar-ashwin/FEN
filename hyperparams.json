@@ -39,7 +39,7 @@
         "max_steps": 100,
         "learning_rate": 0.0003,
         "hidden_size": 20,
-        "model_update_freq": 20,
+        "model_update_freq": 50,
         "best_model_update_freq": 20,
         "model_save_freq": 20,
         "warm_start": 10
