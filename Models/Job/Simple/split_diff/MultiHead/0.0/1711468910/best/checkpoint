@@ -1,0 +1,5 @@
+model_checkpoint_path: "best_model.ckpt_multihead"
+all_model_checkpoint_paths: "../model_100.ckpt_multihead"
+all_model_checkpoint_paths: "../model_200.ckpt_multihead"
+all_model_checkpoint_paths: "../model_300.ckpt_multihead"
+all_model_checkpoint_paths: "best_model.ckpt_multihead"

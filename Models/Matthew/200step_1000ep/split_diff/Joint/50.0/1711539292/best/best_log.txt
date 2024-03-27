@@ -1,0 +1,46 @@
+Validation Utility: 44.12
+Validation Fairness: -0.04737541745486677
+Validation Min Utility: 3.96
+Validation Objective: 33.7
+Validation Variance: 0.2084
+Episode: 300
+Epsilon: 0.05
+Arguments:
+greedy: False
+training: True
+reallocate: False
+central_rewards: False
+simple_obs: False
+logging: True
+env_name: Matthew
+env_name_mod: 
+SI_beta: 0
+learning_beta: 50.0
+fairness_type: split_diff
+tag: 200step_1000ep
+warm_start: 50.0
+past_discount: 0.995
+n_episode: 1000
+max_steps: 200
+render: False
+save_path: Matthew/200step_1000ep//split_diff/Joint/50.0/1711539292
+Training Arguments:
+hidden_size: 20
+learning_rate: 0.0003
+replay_buffer_size: 250000
+model_update_freq: 50
+target_update_freq: 20
+model_save_freq: 100
+validation_freq: 10
+best_model_update_freq: 100
+GAMMA: 0.98
+model_loc: 
+u_model_loc: 
+f_model_loc: 
+split: False
+learn_fairness: True
+learn_utility: True
+multi_head: False
+phased_training: False
+phase_length: 200
+learning_beta: 50.0
