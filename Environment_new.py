@@ -18,7 +18,7 @@ class MACEnv:
 	'''
 	Meta class for multi-agent central decision-maker environments
 
-	# self.su should be used to keep track of rewards.
+	# self.su should be used to keep track of rewards. (system utility)
 	# self.discounted_su should be used for fairness
 	'''
 	def __init__(self, warm_start=0, past_discount=0.995):
@@ -131,9 +131,12 @@ class WarmStartEnvt(MACEnv):
 			self.warm_start + np.random.rand()*w - w/2 for _ in range(self.n_agents)
 			])
 		# self.resource_rate = np.zeros(self.n_agents) # How many resources did this agent get historically
-		self.resource_rate = warm_start_resources/max(warm_start_resources) # How many resources did this agent get historically
+		self.resource_rate = warm_start_resources/sum(warm_start_resources) # How many resources did this agent get historically
 		self.time = 0
 		self.resources = np.zeros(self.n_agents)
+		#TODO : Fix how the warm start is handled in this environment
+		# self.time = sum(warm_start_resources)
+		# self.resources = warm_start_resources ## This is still wrong, the discounted su does not update properly, and this could skew metrics.
 		self.discounted_su = copy.deepcopy(self.resource_rate)
 		
 		
