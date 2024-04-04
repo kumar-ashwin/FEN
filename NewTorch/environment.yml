@@ -1,0 +1,26 @@
+name: fen
+dependencies:
+  - python=3.7
+  - jupyterlab
+  - ipywidgets
+  - bokeh=2.4.1
+  - gurobi::gurobi
+  - pip
+  - pip:
+    - jupyterlab-nvdashboard
+    - jupyterlab-tensorboard-pro
+    - tensorflow==2.11
+    - torch
+    - pytorch-lightning
+    - pytorch-optimizer
+    - gurobipy
+    - transformers
+    - ipykernel
+    - plotly
+    - numpy
+    - scipy
+    - seaborn
+    - plotly
+    - scikit-learn
+    - pandas
+    - matplotlib
