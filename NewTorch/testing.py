@@ -6,6 +6,7 @@ ToDo: Use the general validation function.
 """
 import os, time  
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 import random
 import csv
@@ -21,10 +22,11 @@ import copy
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-args, train_args = process_args("Matthew", load_default=True)
+args, train_args = process_args("WarmStart", load_default=True)
 # Location to test
 
-folder = "matthew/Models/Matthew/Main1500/split_diff/MultiHead/"
+folder = "Models/WarmStartTestSimpleMultiHead/Simple/split_diff/MultiHead/"
+folder = "Models/WarmStartTestFixedMultiHead/Simple/split_diff/MultiHead/"
 
 #load a log file to get model arguments
 beta = os.listdir(folder)[0]
@@ -63,13 +65,13 @@ n_agents = len(obs[0])
 def load_agent(model_path, beta):
     agent = get_agent(train_args, args.training, num_features, M_train)
     agent.load_model(model_path)
+    agent.set_eval_beta(beta)
     agent.learning_beta = beta
     return agent
 
 
 def validate_and_plot(agent, M_val, max_steps, args, n_agents):
-    agent.set_active_net(0)
-    num_eps = 10
+    num_eps = 3
     all_resource_rates =  []
 
     #Run validation episodes with the current policy
@@ -117,31 +119,76 @@ def validate_and_plot(agent, M_val, max_steps, args, n_agents):
 
 
 betas = os.listdir(folder)
-all_metrics = {}
+beta_vals = {float(beta): beta for beta in betas}
+betas = sorted(betas, key=lambda x: float(x))
+
+if False:
+    all_metrics = {}
+    for beta in betas:
+        beta_val = float(beta)
+        print("Evaluating beta ", beta_val)
+        timestamp = os.listdir(folder+beta)[0]
+        agent = load_agent(folder+beta+"/"+timestamp+"/best/best_model.ckpt", float(beta))
+        metrics = validate_and_plot(agent, M_val, args.max_steps, args, n_agents)
+        all_metrics[beta_val] = metrics
+        plt.plot()
+        plt.ion()
+        plt.pause(0.1)
+        plt.close()
+    print(all_metrics)
+
+    # Print the metrics prettily
+    for key, value in all_metrics.items():
+        print(key, value)
+    import pandas as pd
+    df = pd.DataFrame(all_metrics)
+
+    df_ = df.T
+    #sort rows by index
+    df_ = df_.sort_index()
+    print(df_)
+
+    #plot fairnes vs system_utility
+    import plotly.express as px
+    fig = px.scatter(df_, x="system_utility", y="fairness", color=df_.index.astype(str))
+    fig.show()
+
+
+## Beta region expt
+all_results_region = {}
 for beta in betas:
-    beta_val = float(beta)
-    print("Evaluating beta ", beta_val)
+    #Evaluate the model on all other betas
     timestamp = os.listdir(folder+beta)[0]
-    agent = load_agent(folder+beta+"/"+timestamp+"/best/best_model.ckpt", float(beta))
-    metrics = validate_and_plot(agent, M_val, args.max_steps, args, n_agents)
-    all_metrics[beta_val] = metrics
-    plt.plot()
-    plt.ion()
-    plt.pause(0.1)
-    plt.close()
-print(all_metrics)
+    model_path = folder+beta+"/"+timestamp+"/best/best_model.ckpt"
+    all_metrics = {}
+    for beta_test in betas:
+        beta_eval = float(beta_test)
+        print("Evaluating beta ", beta_eval, "Base beta", beta)
+        agent = load_agent(model_path, beta_eval)
+        metrics = validate_and_plot(agent, M_val, args.max_steps, args, n_agents)
+        all_metrics[beta_eval] = metrics
+        # plt.plot()
+        # plt.ion()
+        # plt.pause(0.1)
+        # plt.close()
+    # Print the metrics prettily
+    df = pd.DataFrame(all_metrics)
+
+    df_ = df.T
+    #sort rows by index
+    df_ = df_.sort_index()
+    print(df_)
+    all_results_region[float(beta)] = all_metrics
 
 # Print the metrics prettily
-for key, value in all_metrics.items():
+for key, value in all_results_region.items():
     print(key, value)
-import pandas as pd
-df = pd.DataFrame(all_metrics)
 
+df = pd.DataFrame(all_results_region)
 df_ = df.T
 #sort rows by index
 df_ = df_.sort_index()
 print(df_)
-
 #plot fairnes vs system_utility
 import plotly.express as px
-px.scatter(df_, x="system_utility", y="fairness", color=df_.index.astype(str))
+fig = px.scatter(df_, x="system_utility", y="fairness", color=df_.index.astype(str))

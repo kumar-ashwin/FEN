@@ -110,10 +110,10 @@ class MultiHeadValueNetwork(metaNetwork):
 	"""
 	Value network with two heads, one for fairness and one for utility
 	"""
-	def __init__(self, num_features, hidden_size, learning_beta=0.0, eval_beta=0.0):
+	def __init__(self, num_features, hidden_size, learning_beta=0.0):
 		super(MultiHeadValueNetwork, self).__init__()
 		self.learning_beta = learning_beta
-		self.eval_beta = eval_beta
+		self.eval_beta = learning_beta
 		self.fc1 = nn.Linear(num_features, hidden_size)
 		self.fc2 = nn.Linear(hidden_size, hidden_size)
 		self.fairness_head = nn.Linear(hidden_size, 1)
@@ -356,12 +356,17 @@ class MultiHeadDoubleDQNAgent(Agent):
 		self.q_network = MultiHeadValueNetwork(num_features, hidden_size, learning_beta)
 		self.target_q_network = MultiHeadValueNetwork(num_features, hidden_size, learning_beta)
 		self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
-		self.loss = nn.MSELoss()
+		self.loss_util = nn.MSELoss()
+		self.loss_fair = nn.MSELoss()
 		self.learn_fairness = learn_fairness
 		self.learn_utility = learn_utility
 		if phased_learning:
 			raise Exception("Phased learning not supported for MultiHeadDoubleDQNAgent")
-		
+	
+	def set_eval_beta(self, beta):
+		self.q_network.eval_beta = beta
+		self.target_q_network.eval_beta = beta
+
 	def get(self, state, target=False):
 		state = Variable(torch.from_numpy(state).float().unsqueeze(0))
 		if target:
@@ -478,26 +483,31 @@ class MultiHeadDoubleDQNAgent(Agent):
 			td_f_rewards = np.array(f_rewards)
 
 			states = np.array([pd_state[i] for i in range(n_agents)])
+
 			values_util = self.get_util(states).squeeze()
-
 			target_values_util = td_rewards + (int(not(done)))*self.GAMMA * self.get_util(np.array(new_pd_states), target=True).detach().numpy().flatten()
-
 			target_values_util = Variable(torch.from_numpy(target_values_util).float())
 
-			loss_util = self.loss(values_util, target_values_util)
-
-			self.optimizer.zero_grad()
-			loss_util.backward()
-			self.optimizer.step()
-			
 			values_fair = self.get_fair(states).squeeze()
 			target_values_fair = td_f_rewards + (int(not(done)))*self.GAMMA * self.get_fair(np.array(new_pd_states), target=True).detach().numpy().flatten()
 			target_values_fair = Variable(torch.from_numpy(target_values_fair).float())
-			loss_fair = self.loss(values_fair, target_values_fair)
+			
+			loss_util = self.loss_util(values_util, target_values_util)
+			loss_fair = self.loss_fair(values_fair, target_values_fair)
+			total_loss = loss_util + self.learning_beta * loss_fair
 
 			self.optimizer.zero_grad()
-			loss_fair.backward()
+			total_loss.backward()
 			self.optimizer.step()
+			
+			# self.optimizer.zero_grad()
+			# loss_util.backward()
+			# self.optimizer.step()
+			
+
+			# self.optimizer.zero_grad()
+			# loss_fair.backward()
+			# self.optimizer.step()
 
 			u_losses.append(loss_util.item())
 			f_losses.append(loss_fair.item())
@@ -509,9 +519,9 @@ class MultiHeadDoubleDQNAgent(Agent):
 			return loss_logs
 		self.env.reset()
 		experiences = self.replay_buffer.sample(num_samples)
-		if self.learn_fairness and self.learn_utility and 0:
-			# loss_logs['util'], loss_logs['fair'] = self._update_split(experiences)
-			a = 1
+		if self.learn_fairness and self.learn_utility:
+			loss_logs['util'], loss_logs['fair'] = self._update_split(experiences)
+			# loss_logs = 0
 		else:
 			loss_logs['util'], _ = self._update_basic(experiences)
 		return loss_logs

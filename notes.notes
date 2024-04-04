@@ -43,6 +43,13 @@ For matthew:
     5. Generally, need to think about the fairness reward. Do we want the fair agent to learn from F(s) - (R_f + F(s')) or \beta*(F(s) - (R_f + F(s'))? Does it make a difference in the split agent? It should make a difference in the multi-head agent.
 !Other thing to check: The num_samples is just 32 and num_min_samples is 1000/num_agents. Update freq is 100, so we are horribly underutilizing experiences
 
+6. Fixing issues with the low beta learning (Joint), in the 200 step 1000 ep case:
+    1. 0.01 seems to be terrible at learning
+        - Analysis of learning shows it jumps up and down a lot. 
+        Possible culprit: Warm start
+        - Warm start of 5 seems to have fixed the issue. Rerunning experiments
+    2. For multi-head, high LR seems to be worse
+
 Plant domain:
     1. Fixed one issue with the reward not being properly transmitted (np array dtype issue)
     2. The model still does not learn anything
@@ -68,6 +75,11 @@ For the paper:
 7. What about a non-central approach? If each agent makes their own decision, does this training help?
 8. Might need to run bootstraps to get average behavior at each beta.
 !! None of the domains so far have a variable action space that prevents policy learning.
+9. A possible argument for fairness: 
+    1. Small amounts of fairness actually help the model in exploring, can lead to higher utilities
+        But only if there is a consistent pattern
+    Is only a valid argument if the learning process follows a well known algorithm
+10. The SI update is really similar to advantage function. Could present ties to that.
 
 !? Why cant the networks predict all actions at once, and we superimpose them?
 
@@ -78,7 +90,8 @@ Warm start env:
 0. !Learning with 0 beta is not working
 1. Changed the logging, to have "system_utility" instead of "utility". This could break logging and plotting
 2. Have a generalized template for environments. Need to split system and agent utility, to allow for fairness to be less strongly coupled
-3. A TODO: Convert all domains to the same general format:
+3. ! Implement the warm start correctly. It doesnt do what its intent is
+4. A TODO: Convert all domains to the same general format:
     - !Post decision states calculated by taking a step and then resetting the environment
         - NO!. THis is wrong. PD state should not include the reward from the next state, because of the learning scheme.
         - Learning: loss = Q(s^) - (R(s,a) + Q(s'^))
@@ -88,7 +101,7 @@ Warm start env:
     - Separate utility and fairness rewards. 
     - rename discounted_su and su. Bad naming convention so far.
     - 
-4. An issue with the normalized discounted_su is that the magnitude is too small
+5. An issue with the normalized discounted_su is that the magnitude is too small
 
 Come up with a way to scale the f_reward automatically to be in the correct range?
 
@@ -109,12 +122,36 @@ Environment updates:
 //     Yes, because the trasnsition needs to be computed in the agent update. Transition is not computed using Observation
 
 !! Important fix: All agents need to update from combined experiences not just one at a time
+Agent updates:
+!FOLLOW A WELL ESTABLISHED PAPER
+1. New, better coded DDQN works much faster and stabler
+    - Implemented in torch
+    - Removed unnecessary 2x networks. Single net with 1 target net
+    New split agent also seems to be working decently
+
+    Split and multi haed (complex kind) are not very reliable. The curve doesnt appear pareto optimal
+        Possible causes:
+        1. More episodes needed?
+        2. Too high learning rate. Non stationarity of the current policy
+    
+TODO: Implement and run the PPO Value function. Should be stabler.
 
 For agents:
 1. !! There seems to be no reason to use Huber loss, so changing it to MSE.
 2. !! TODO: Update the classes to tf2
 3. Updated all agent classes to only back propagate once with all experiences
 
+A baseline-based fairness function:
+What is the value of a state for fairness? Get Q-values and subtract the baseline from them.
+*This wouldn't change the allocation.
+
+Assume 2 types of agents, A and B. A can consume resources of type 1 and 2, B can only consume type 1. If only type 2 resources are available, do we allocate to A, or nothing?
+    This is also a philosophical problem.
+
+On the need for past discounts:
+Situations where past discounts are useful - 
+1. In long-horizon settings, the effect of actions on the system is barely visible, when metrics are aggregated and bounded. Past discounting allows current decisions to always matter.
+2. Future discounting is useful because future payoffs comewith some uncertainty. Past payoffs are exactly known, so need to think about this more.
 
 For showing use of past discounts:
 1. Experiment with a heavily biased start state. Generalization of learned function.
