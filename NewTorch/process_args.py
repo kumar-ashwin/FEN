@@ -215,8 +215,19 @@ def process_args(env_name=None, config_file=None, load_default=False):
     mode += f"/{run_args.learning_beta}"
 
     mode = run_args.env_name + run_args.env_name_mod + "/" + run_args.tag + "/" + mode
-    mode += f"/{st_time}"
-    run_args.save_path = mode
+
+    # Check the save path and list the folders in the directory
+    save_path = "logs/"+mode
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+        exp_num = 1
+    else:
+        exp_num = len(os.listdir(save_path))+1
+    save_path_exp = save_path + f"/{exp_num}"
+    os.mkdir(save_path_exp)
+    print(f"Save path: {save_path}")
+    # exit()
+    run_args.save_path = save_path_exp
 
     training_args.learning_beta = run_args.learning_beta
 

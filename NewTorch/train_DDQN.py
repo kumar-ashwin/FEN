@@ -15,7 +15,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 args, train_args = process_args()
 
 if args.training and args.logging:
-	log_dir = f"logs/{args.save_path}/"
+	log_dir = f"{args.save_path}/"
 	print("Logging to {} \n\n\n\n".format(log_dir))
 	summary_writer = tf.summary.create_file_writer(log_dir)
 else:
@@ -101,11 +101,11 @@ if args.training:
 	#load best model
 	if train_args.split and not train_args.multi_head:
 		if train_args.learn_utility:
-			agent.load_util_model(f"Models/{args.save_path}/best/best_model.ckpt_util")
+			agent.load_util_model(f"{args.save_path}/models/best/best_model.ckpt_util")
 		if train_args.learn_fairness:
-			agent.load_fair_model(f"Models/{args.save_path}/best/best_model.ckpt_fair")
+			agent.load_fair_model(f"{args.save_path}/models/best/best_model.ckpt_fair")
 	else:
-		agent.load_model(f"Models/{args.save_path}/best/best_model.ckpt")
+		agent.load_model(f"{args.save_path}/models/best/best_model.ckpt")
 	print("Final Validation")
 	num_eps = 50
 	M_val.external_trigger = True
@@ -140,3 +140,8 @@ if args.training:
 		if not file_exists:
 			writer.writeheader()
 		writer.writerow(all_fields)
+
+# Write a file to indicate that the training is done
+if args.training:
+	with open(f"{args.save_path}/training_done.txt", "w") as f:
+		f.write("Training Done")

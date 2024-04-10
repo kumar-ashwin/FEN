@@ -94,11 +94,11 @@ def run_validation(num_epochs, M_val, agent, args, render=False, use_fair_reward
 
 def save_best_model(agent, mean_val_metrics, i_episode, ep_epsilon, args, train_args):
     #make directory if it doesn't exist
-    os.makedirs(f"Models/{args.save_path}/best", exist_ok=True)
-    agent.save_model(f"Models/{args.save_path}/best/best_model.ckpt")
+    os.makedirs(f"{args.save_path}/models/best", exist_ok=True)
+    agent.save_model(f"{args.save_path}/models/best/best_model.ckpt")
     print("Saved best model")
     #Write the logs to a file
-    with open(f"Models/{args.save_path}/best/best_log.txt", "w") as f:
+    with open(f"{args.save_path}/models/best/best_log.txt", "w") as f:
         f.write(f"Validation Utility: {mean_val_metrics['system_utility']}\n")
         f.write(f"Validation Fairness: {mean_val_metrics['fairness']}\n")
         f.write(f"Validation Min Utility: {mean_val_metrics['min_utility']}\n")
@@ -170,7 +170,7 @@ def post_episode_hk(agent, losses, i_episode, train_args, args):
         
         # Save the model
         if i_episode%train_args.model_save_freq==0:
-            os.makedirs(f"Models/{args.save_path}/", exist_ok=True)
-            agent.save_model(f"Models/{args.save_path}/model_{i_episode}.ckpt")
+            os.makedirs(f"{args.save_path}/models/", exist_ok=True)
+            agent.save_model(f"{args.save_path}/models/model_{i_episode}.ckpt")
         
     return losses_dict
