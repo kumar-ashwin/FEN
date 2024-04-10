@@ -110,10 +110,10 @@ class MultiHeadValueNetwork(metaNetwork):
 	"""
 	Value network with two heads, one for fairness and one for utility
 	"""
-	def __init__(self, num_features, hidden_size, learning_beta=0.0):
+	def __init__(self, num_features, hidden_size, learning_beta=0.0, eval_beta=0.0):
 		super(MultiHeadValueNetwork, self).__init__()
 		self.learning_beta = learning_beta
-		self.eval_beta = learning_beta
+		self.eval_beta = eval_beta
 		self.fc1 = nn.Linear(num_features, hidden_size)
 		self.fc2 = nn.Linear(hidden_size, hidden_size)
 		self.fairness_head = nn.Linear(hidden_size, 1)
@@ -139,7 +139,21 @@ class MultiHeadValueNetwork(metaNetwork):
 		fairness = self.fairness_head(x)
 		return fairness
 	
+	# def update(self, fairness_error, utility_error):
+	#     # Scale the fairness error
+	#     scaled_fairness_error = fairness_error * self.learning_beta
 
+	#     # Combine the errors
+	#     total_error = scaled_fairness_error + utility_error
+
+	#     # Zero the gradients
+	#     self.optimizer.zero_grad()
+
+	#     # Perform backpropagation
+	#     total_error.backward()
+
+	#     # Update the weights
+	#     self.optimizer.step()
 """
 Agents:
 """
@@ -342,212 +356,15 @@ class SplitDoubleDQNAgent(Agent):
 
 
 class MultiHeadDoubleDQNAgent(Agent):
-	"""
-	Agent with 2 heads, one for fairness and one for utility.
-	Uses Double DQN to stabilize learning.
-	Does not support phased learning.
-	"""
 	def __init__(
-			self, env, num_features, hidden_size, learning_rate=0.001, replay_buffer_size=1000000, GAMMA=0.99, learning_beta=0.0,
-			learn_fairness=True, learn_utility=True, phased_learning=False			
+			self, env, num_features, hidden_size, learning_rate=0.001, replay_buffer_size=1000000, GAMMA=0.99, learning_beta=0.0
 	):
 		super(MultiHeadDoubleDQNAgent, self).__init__(env, num_features, hidden_size, None, learning_rate, GAMMA, learning_beta)
 		self.replay_buffer = ReplayBuffer(replay_buffer_size)
 		self.q_network = MultiHeadValueNetwork(num_features, hidden_size, learning_beta)
 		self.target_q_network = MultiHeadValueNetwork(num_features, hidden_size, learning_beta)
 		self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
-		self.loss_util = nn.MSELoss()
-		self.loss_fair = nn.MSELoss()
-		self.learn_fairness = learn_fairness
-		self.learn_utility = learn_utility
-		if phased_learning:
-			raise Exception("Phased learning not supported for MultiHeadDoubleDQNAgent")
-	
-	def set_eval_beta(self, beta):
-		self.eval_beta = beta
-		self.q_network.eval_beta = beta
-		self.target_q_network.eval_beta = beta
-	
-	def set_learning_beta(self, beta):
-		self.learning_beta = beta
-		self.q_network.learning_beta = beta
-		self.target_q_network.learning_beta = beta
-
-	def get(self, state, target=False):
-		state = Variable(torch.from_numpy(state).float().unsqueeze(0))
-		if target:
-			return self.target_q_network(state)
-		return self.q_network(state)
-	
-	def gets(self, states, target=False):
-		states = Variable(torch.from_numpy(states).float())
-		if target:
-			return self.target_q_network(states)
-		return self.q_network(states)
-	
-	def get_fair(self, state, target=False):
-		state = Variable(torch.from_numpy(state).float().unsqueeze(0))
-		if target:
-			return self.target_q_network.get_fair(state)
-		return self.q_network.get_fair(state)
-	
-	def get_util(self, state, target=False):
-		state = Variable(torch.from_numpy(state).float().unsqueeze(0))
-		if target:
-			return self.target_q_network.get_util(state)
-		return self.q_network.get_util(state)
-	
-	def add_experience(self, post_decision_state, rewards, f_rewards, new_state, done):
-		experience = {
-			'pd_state': copy.deepcopy(post_decision_state),
-			'rewards': copy.deepcopy(rewards),
-			'f_rewards': copy.deepcopy(f_rewards),
-			'new_state': copy.deepcopy(new_state),
-			'done': done,
-		}
-		self.replay_buffer.add(experience)
-
-	# def update(self, fairness_error, utility_error):
-	#     # Scale the fairness error
-	#     scaled_fairness_error = fairness_error * self.learning_beta
-
-	#     # Combine the errors
-	#     total_error = scaled_fairness_error + utility_error
-
-	#     # Zero the gradients
-	#     self.optimizer.zero_grad()
-
-	#     # Perform backpropagation
-	#     total_error.backward()
-
-	#     # Update the weights
-	#     self.optimizer.step()
-	# def update(self, fairness_target, utility_target):
-	# 	# Zero the gradients
-	# 	self.optimizer.zero_grad()
-
-	# 	# Calculate the fairness loss and backpropagate
-	# 	fairness_output = self.get_fair()
-	# 	fairness_loss = self.loss(fairness_output, fairness_target * self.learning_beta)
-	# 	fairness_loss.backward(retain_graph=True)
-
-	# 	# Calculate the utility loss and backpropagate
-	# 	utility_output = self.get_util()
-	# 	utility_loss = self.loss(utility_output, utility_target)
-	# 	utility_loss.backward()
-
-	# 	# Update the weights
-	# 	self.optimizer.step()
-	def _update_basic(self, experiences):
-		u_losses = []
-		f_losses = []
-		for experience in experiences:
-			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
-			n_agents = len(pd_state)
-			self.env.set_state(new_state)
-			succ_obs = self.env.get_obs()
-
-			# Compute the optimal actions using the online q-network
-			opt_actions = self.env.compute_best_actions(self, self.env, succ_obs)
-			new_pd_states = self.env.get_post_decision_states(succ_obs, opt_actions)
-
-			td_rewards = np.array(rewards)
-			td_f_rewards = np.array(f_rewards)
-			total_rewards = td_rewards + self.learning_beta * td_f_rewards
-
-			states = np.array([pd_state[i] for i in range(n_agents)])
-
-			values = self.gets(states).squeeze()
-			target_values = total_rewards + (int(not(done)))*self.GAMMA * self.gets(np.array(new_pd_states), target=True).detach().numpy().flatten()
-			target_values = Variable(torch.from_numpy(target_values).float())
-			loss = self.loss(values, target_values)
-
-			self.optimizer.zero_grad()
-			loss.backward()
-			self.optimizer.step()
-
-			u_losses.append(loss.item())
-		return u_losses, f_losses
-	
-	def _update_split(self, experiences):
-		# Backprop each head separately and return the losses
-		#Possible solutionL Return two values from the forward method of MultiHeadValueNetwork
-		u_losses = []
-		f_losses = []
-
-		for experience in experiences:
-			pd_state, rewards, f_rewards, new_state, done = experience['pd_state'], experience['rewards'], experience['f_rewards'], experience['new_state'], experience['done']
-			n_agents = len(pd_state)
-			self.env.set_state(new_state)
-			succ_obs = self.env.get_obs()
-
-			# Compute the optimal actions using the online q-network
-			opt_actions = self.env.compute_best_actions(self, self.env, succ_obs)
-			new_pd_states = self.env.get_post_decision_states(succ_obs, opt_actions)
-
-			td_rewards = np.array(rewards)
-			td_f_rewards = np.array(f_rewards)
-
-			states = np.array([pd_state[i] for i in range(n_agents)])
-
-			values_util = self.get_util(states).squeeze()
-			target_values_util = td_rewards + (int(not(done)))*self.GAMMA * self.get_util(np.array(new_pd_states), target=True).detach().numpy().flatten()
-			target_values_util = Variable(torch.from_numpy(target_values_util).float())
-
-			values_fair = self.get_fair(states).squeeze()
-			target_values_fair = td_f_rewards + (int(not(done)))*self.GAMMA * self.get_fair(np.array(new_pd_states), target=True).detach().numpy().flatten()
-			target_values_fair = Variable(torch.from_numpy(target_values_fair).float())
-			
-			loss_util = self.loss_util(values_util, target_values_util)
-			loss_fair = self.loss_fair(values_fair, target_values_fair)
-			total_loss = loss_util + self.learning_beta * loss_fair
-
-			self.optimizer.zero_grad()
-			total_loss.backward()
-			self.optimizer.step()
-
-			# self.optimizer.zero_grad()
-			# loss_util.backward()
-			# self.optimizer.step()
-			
-
-			# self.optimizer.zero_grad()
-			# loss_fair.backward()
-			# self.optimizer.step()
-
-			u_losses.append(loss_util.item())
-			f_losses.append(loss_fair.item())
-		return u_losses, f_losses
-	
-	def update(self, num_samples, num_min_samples=100000):
-		loss_logs = {'util': [], 'fair': []}
-		if self.replay_buffer.size < num_min_samples:
-			return loss_logs
-		self.env.reset()
-		experiences = self.replay_buffer.sample(num_samples)
-		if self.learn_fairness and self.learn_utility:
-			loss_logs['util'], loss_logs['fair'] = self._update_split(experiences)
-			# loss_logs = 0
-		else:
-			loss_logs['util'], _ = self._update_basic(experiences)
-		return loss_logs
-		
-	def update_from_experience(self, experiences):
-		if self.learn_fairness and self.learn_utility:
-			return self._update_split(experiences)
-		return self._update_basic(experiences)
-	
-	def update_target_network(self):
-		self.target_q_network.set_weights(self.q_network.get_weights())
-
-	def save_model(self, path):
-		self.q_network.save(path)
-
-	def load_model(self, path):
-		self.q_network.load(path)
-		self.update_target_network()
-
-
+		self.loss = nn.MSELoss()
 
 
 class PPOValueAgent(Agent):

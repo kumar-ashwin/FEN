@@ -109,7 +109,7 @@ Come up with a way to scale the f_reward automatically to be in the correct rang
 QOL improvements
 Sync this to a gym env setting
 ! Look into imitation learning
-// ! TODO: For final validation, load best model. Will make life easier
+// TODO: For final validation, load best model. Will make life easier
 // Add a loader for environment, and make environment arguments part of argument parser
     // Will allow a single file to be used for all experiments
 // Create an evaluation file. Load best models and evalaute them
@@ -137,8 +137,8 @@ Agent updates:
 TODO: Implement and run the PPO Value function. Should be stabler.
 
 For agents:
-1. !! There seems to be no reason to use Huber loss, so changing it to MSE.
-2. !! TODO: Update the classes to tf2
+// 1. !! There seems to be no reason to use Huber loss, so changing it to MSE.
+// 2. !! TODO: Update the classes to tf2
 3. Updated all agent classes to only back propagate once with all experiences
 
 A baseline-based fairness function:
@@ -161,3 +161,9 @@ For showing use of past discounts:
 Title:
 Learning to be fair: A multi-agent reinforcement learning approach to fair resource allocation
 Learning fairness in partially observable centralized markov games
+
+
+Latest Issues:
+
+1 !!For some reason, pre-addition for MultiHeadNetwork, the Joint function learns great on WarmStart
+    Only changing the Agents_new file causes something to break majorly. Also breaks multihead

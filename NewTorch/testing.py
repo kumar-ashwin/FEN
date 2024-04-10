@@ -71,6 +71,7 @@ def load_agent(model_path, beta):
     else:
         agent.load_model(model_path)
     agent.set_eval_beta(beta)
+    agent.set_learning_beta(beta)
     agent.learning_beta = beta
     return agent
 
@@ -125,7 +126,7 @@ def validate_and_plot(agent, M_val, max_steps, args, n_agents):
 
 betas = os.listdir(folder)
 beta_vals = {float(beta): beta for beta in betas}
-betas = sorted(betas, key=lambda x: float(x))
+betas = sorted(betas, key=lambda x: float(x), reverse=True)
 
 if False:
     all_metrics = {}
