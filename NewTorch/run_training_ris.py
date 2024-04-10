@@ -1,0 +1,61 @@
+import os
+import json
+
+# add argument processing
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--env_name", type=str, default="WarmStart")
+parser.add_argument("--env_name_mod", type=str, default="")
+parser.add_argument("--split", type=str, default="False")
+parser.add_argument("--learn_fairness", type=str, default="True")
+parser.add_argument("--learn_utility", type=str, default="True")
+parser.add_argument("--multi_head", type=str, default="False")
+parser.add_argument("--logging", type=str, default="True")
+parser.add_argument("--render", type=str, default="False")
+# parser.add_argument("--simple_obs", type=str, default="False")
+parser.add_argument("--SI_beta", type=int, default=0)
+parser.add_argument("--fairness_type", type=str, default="split_diff")
+parser.add_argument("--tag", type=str, default="")
+parser.add_argument("--u_model_loc", type=str, default="")
+parser.add_argument("--learning_beta", type=float, default=0.0)
+args = parser.parse_args()
+
+params = vars(args)
+#Handle boolean arguments
+for k,v in params.items():
+    if v == "True" or v == "False":
+        params[k] = v == "True"
+
+with open(f"hyperparams.json") as f:
+    hyperparams = json.load(f)[params["env_name"]]
+    for key, value in hyperparams.items():
+        if key not in params:
+            params[key] = value
+        else:
+            print("Key ", key, " already exists in args. Ignoring value from hyperparams.json")
+
+
+if not params["learn_utility"]:
+    if params["multi_head"]:
+        print("Multihead not supported for learn_utility=False")
+        exit()
+    if params["u_model_loc"] == "":
+        print("Must provide u_model_loc when learn_utility=False")
+        exit()
+    print("Loading model from ", params["u_model_loc"])
+else:
+    if params["u_model_loc"] != "":
+        print("Ignoring u_model_loc when learn_utility=True")
+    params["u_model_loc"] = ""
+
+
+func = f"""python train_DDQN.py """
+for key, value in params.items():
+    if value is None or value is "":
+        continue
+    if key=='learning_beta':
+        print(value, key)
+    func += f""" --{key} {value} """
+# print(func)
+os.system(func)

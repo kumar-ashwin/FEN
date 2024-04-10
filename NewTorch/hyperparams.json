@@ -6,8 +6,8 @@
         "max_steps": 200,
         "learning_rate": 0.0003,
         "model_update_freq": 50,
-        "best_model_update_freq": 100,
-        "model_save_freq": 100,
+        "best_model_update_freq": 50,
+        "model_save_freq": 200,
         "hidden_size": 20,
         "tag": "200step_1000ep",
         "warm_start": 5
@@ -18,6 +18,9 @@
         "n_episode": 1000,
         "max_steps": 100,
         "learning_rate": 0.0003,
+        "model_update_freq": 50,
+        "best_model_update_freq": 50,
+        "model_save_freq": 200,
         "warm_start": 10
     },
     "Plant":
@@ -28,8 +31,8 @@
         "learning_rate": 0.0003,
         "hidden_size": 20,
         "model_update_freq": 50,
-        "best_model_update_freq": 100,
-        "model_save_freq": 100,
+        "best_model_update_freq": 50,
+        "model_save_freq": 200,
         "warm_start": 3
     },
     "WarmStart":
@@ -41,7 +44,7 @@
         "hidden_size": 20,
         "model_update_freq": 50,
         "best_model_update_freq": 20,
-        "model_save_freq": 20,
+        "model_save_freq": 50,
         "warm_start": 10
     },
     "Simple":
@@ -52,7 +55,7 @@
         "learning_rate": 0.0003,
         "hidden_size": 20,
         "model_update_freq": 20,
-        "best_model_update_freq": 20,
+        "best_model_update_freq": 10,
         "model_save_freq": 20,
         "warm_start": 50
     }
