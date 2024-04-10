@@ -27,6 +27,7 @@ args, train_args = process_args("WarmStart", load_default=True)
 
 folder = "Models/WarmStartTestSimpleMultiHead/Simple/split_diff/MultiHead/"
 folder = "Models/WarmStartTestFixedMultiHead/Simple/split_diff/MultiHead/"
+folder = "Models/WarmStartFixedMultiHead/Simple/split_diff/Split/"
 
 #load a log file to get model arguments
 beta = os.listdir(folder)[0]
@@ -64,7 +65,11 @@ n_agents = len(obs[0])
 
 def load_agent(model_path, beta):
     agent = get_agent(train_args, args.training, num_features, M_train)
-    agent.load_model(model_path)
+    if train_args.split and not train_args.multi_head:
+        agent.load_util_model(model_path+"_util")
+        agent.load_fair_model(model_path+"_fair")
+    else:
+        agent.load_model(model_path)
     agent.set_eval_beta(beta)
     agent.learning_beta = beta
     return agent
@@ -184,11 +189,16 @@ for beta in betas:
 for key, value in all_results_region.items():
     print(key, value)
 
-df = pd.DataFrame(all_results_region)
-df_ = df.T
-#sort rows by index
-df_ = df_.sort_index()
-print(df_)
+df = pd.DataFrame()
+for key, value in all_results_region.items():
+    for key_, value_ in value.items():
+        df_ = pd.DataFrame([value_])
+
+        df_["basebeta"] = key
+        df_["testbeta"] = key_
+        df = pd.concat([df, df_], ignore_index=True)
+    
+print(df)
 #plot fairnes vs system_utility
 import plotly.express as px
-fig = px.scatter(df_, x="system_utility", y="fairness", color=df_.index.astype(str))
+fig = px.scatter(df, x="system_utility", y="fairness", color='basebeta')

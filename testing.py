@@ -25,6 +25,9 @@ args, train_args = process_args("Matthew", load_default=True)
 # Location to test
 
 folder = "matthew/Models/Matthew/Main1500/split_diff/MultiHead/"
+# folder = "Models/Matthew/200step_1000ep/split_diff/Joint/"
+# folder = "Models/Job/Simple/split_diff/Joint/"
+# folder = "Models/WarmStart/Simple/split_diff/Joint/"
 
 #load a log file to get model arguments
 beta = os.listdir(folder)[0]
@@ -117,6 +120,9 @@ def validate_and_plot(agent, M_val, max_steps, args, n_agents):
 
 
 betas = os.listdir(folder)
+beta_vals = {float(beta):beta for beta in betas}
+#Sort by beta value
+betas = [beta_vals[b] for b in sorted(beta_vals.keys())]
 all_metrics = {}
 for beta in betas:
     beta_val = float(beta)
@@ -124,6 +130,10 @@ for beta in betas:
     timestamp = os.listdir(folder+beta)[0]
     agent = load_agent(folder+beta+"/"+timestamp+"/best/best_model.ckpt", float(beta))
     metrics = validate_and_plot(agent, M_val, args.max_steps, args, n_agents)
+    print("Utility \t: ", metrics["system_utility"])
+    print("Fairness\t: ", metrics["fairness"])
+    print("Objective\t: ", metrics["objective"])
+    print("Variance\t: ", metrics["variance"])
     all_metrics[beta_val] = metrics
     plt.plot()
     plt.ion()
