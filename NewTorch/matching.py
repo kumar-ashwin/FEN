@@ -27,7 +27,7 @@ def get_assignment_old(Qvalues):
 				assignment.append(j)
 	return assignment
 
-def get_assignment(Qvalues, resource_counts, agent_constraints=None):
+def get_assignment_gurobi(Qvalues, resource_counts, agent_constraints=None):
 	# Qvalues is a list of lists, where each list is the Q values for each agent for each resource
 	# resource_counts is a list of the number of agents that can be assigned to each resource
 	# agent_constraints is a list of the resources an agent cannot be assigned to
@@ -55,6 +55,93 @@ def get_assignment(Qvalues, resource_counts, agent_constraints=None):
 			if x[i,j].x==1:
 				assignment.append(j)
 	return assignment
+
+
+# from pulp import LpMaximize, LpProblem, LpVariable, lpSum, LpSolverDefault
+
+# def get_assignment_pulp(Qvalues, resource_counts, agent_constraints=None):
+# 	# PuLP implementation (Slower). GLPK may be a faster alternative
+#     n_agents = len(Qvalues)
+#     n_resources = len(Qvalues[0])
+
+#     # Create the problem
+#     prob = LpProblem("Assignment Problem", LpMaximize)
+
+#     # Define decision variables
+#     x = [[LpVariable(f"x_{i}_{j}", cat='Binary') for j in range(n_resources)] for i in range(n_agents)]
+
+#     # Set the objective function
+#     prob += lpSum(Qvalues[i][j] * x[i][j] for i in range(n_agents) for j in range(n_resources))
+
+#     # Add constraints
+#     for i in range(n_agents):
+#         prob += lpSum(x[i]) == 1  # Each agent can only be assigned to one resource
+#         if agent_constraints is not None:
+#             for j in agent_constraints[i]:
+#                 prob += x[i][j] == 0  # Agent cannot be assigned to certain resources
+
+#     for j in range(n_resources):
+#         prob += lpSum(x[i][j] for i in range(n_agents)) <= resource_counts[j]  # Resource capacity constraint
+
+#     # Suppress output
+#     LpSolverDefault.msg = 0
+
+#     # Solve
+#     prob.solve()
+
+#     # Get assignment
+#     assignment = [sum([x[i][j].value() * j for j in range(n_resources)]) for i in range(n_agents)]
+
+#     return assignment
+
+
+from scipy.optimize import linprog
+
+def get_assignment(Qvalues, resource_counts, agent_constraints=None):
+	"""
+	Speed comparison
+	Gurobi: 20 seconds for 40 warmstart iterations
+	SciPy: 23 seconds for 40 warmstart iterations
+	PuLP: 3 minutes 38 seconds for 40 warmstart iterations
+	"""
+	# SciPy implementation. Decent speed, but not as fast as Gurobi
+	n_agents = len(Qvalues)
+	n_resources = len(Qvalues[0])
+
+	# Objective coefficients
+	c = -np.array(Qvalues).flatten()
+
+	# Inequality constraints: each resource can only be assigned to a certain number of agents
+	A_ub = np.zeros((n_resources, n_agents * n_resources))
+	for j in range(n_resources):
+		for i in range(n_agents):
+			A_ub[j, i * n_resources + j] = 1
+	b_ub = resource_counts
+
+	# Equality constraints: each agent can only be assigned to exactly one resource
+	A_eq = np.zeros((n_agents, n_agents * n_resources))
+	for i in range(n_agents):
+		for j in range(n_resources):
+			A_eq[i, i * n_resources + j] = 1
+	b_eq = np.ones(n_agents)
+
+	# Bounds: each variable is binary (0 or 1)
+	bounds = [(0, 1)] * (n_agents * n_resources)
+
+	# If there are agent constraints, add them
+	if agent_constraints:
+		for i, constraints in enumerate(agent_constraints):
+			for j in constraints:
+				bounds[i * n_resources + j] = (0, 0)
+
+	# Solve the linear programming problem
+	result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
+
+	# Extract assignment from solution
+	assignment = [np.argmax(result.x[i * n_resources: (i + 1) * n_resources]) for i in range(n_agents)]
+
+	return assignment
+
 
 def compute_best_actions(model, obs, targets, n_agents, n_resources, su, epsilon=0.0, beta=0.0, direction='both'):
 

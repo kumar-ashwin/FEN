@@ -9,6 +9,13 @@ Making a new environment:
     remove get_post_decision_state
     implement compute_best_decision
 
+Tested multiple solvers as alternatives to gurobi:
+	Speed comparison
+	Gurobi: 20 seconds for 40 warmstart iterations
+	SciPy: 23 seconds for 40 warmstart iterations
+	PuLP: 3 minutes 38 seconds for 40 warmstart iterations
+Going with scipy as the default now, as it will allow a lot of parallel runs
+
 For the job environment:
 What works
 1. Able to train with the agent constraint environment- you cannot move into a space that was occupied at t-1 (unless you stay)
