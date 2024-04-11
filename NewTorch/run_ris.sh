@@ -70,7 +70,7 @@ do
         -M 4GB \
         -N \
         -u ashwinkumar@wustl.edu \
-        -o /storage1/fs1/wyeoh/Active/ashwin/job_output/FEN/${env}_${split}_${multi_head}_${learn_utility}.%J.txt \
+        -o /storage1/fs1/wyeoh/Active/ashwin/job_output/FEN/${env_name}_beta${learning_beta}_${learn_utility}_${split}_${multi_head}.%J.txt \
         -R 'rusage[mem=4GB] span[hosts=1]' \
         -g /ashwinkumar/limit100 \
         -a "docker(rapidsai/rapidsai:21.10-cuda11.0-runtime-ubuntu20.04-py3.8)" \
