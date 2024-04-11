@@ -68,7 +68,7 @@ do
             -q general \
             -m general \
             -G compute-wyeoh \
-            -J run_name \
+            -J ${run_name} \
             -M 4GB \
             -N \
             -u ashwinkumar@wustl.edu \
