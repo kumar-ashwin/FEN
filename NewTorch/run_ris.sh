@@ -74,6 +74,6 @@ do
         -R 'rusage[mem=4GB] span[hosts=1]' \
         -g /ashwinkumar/limit100 \
         -a "docker(rapidsai/rapidsai:21.10-cuda11.0-runtime-ubuntu20.04-py3.8)" \
-        "cd ~/Git/FEN/ && ${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
+        "cd ~/Git/FEN/NewTorch/ && ${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
     done
 done
