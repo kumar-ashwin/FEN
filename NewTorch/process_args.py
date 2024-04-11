@@ -220,9 +220,17 @@ def process_args(env_name=None, config_file=None, load_default=False):
     save_path = "logs/"+mode
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-        exp_num = 1
-    else:
-        exp_num = len(os.listdir(save_path))+1
+    exp_count = len(os.listdir(save_path))
+    num_bootstraps = 5
+    if len(os.listdir(save_path)) >= num_bootstraps:
+        print("Too many experiments in this folder. Exiting")
+        #TODO: Write a script to check completed experiments and purge the folder
+        exit()
+    exp_num = exp_count+1
+    for i in range(1, exp_count+1):
+        if str(i) not in os.listdir(save_path):
+            exp_num = i
+            break
     save_path_exp = save_path + f"/{exp_num}"
     os.mkdir(save_path_exp)
     print(f"Save path: {save_path}")
