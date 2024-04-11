@@ -66,7 +66,7 @@ do
         -q general \
         -m general \
         -G compute-wyeoh \
-        -J ${env}_${split}_${multi_head}_${learn_utility} \
+        -J ${env_name}_{$key}_{$learning_beta} \
         -M 4GB \
         -N \
         -u ashwinkumar@wustl.edu \
@@ -77,3 +77,5 @@ do
         "cd ~/Git/FEN/NewTorch/ && ${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
     done
 done
+# bjgroup -s /ashwinkumar - To check available groups
+# Limit 5 is for gurobi. Cannot run more than 2 jobs at a time.
