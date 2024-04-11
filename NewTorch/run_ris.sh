@@ -41,40 +41,43 @@ echo $func
 
 # for env in "WarmStart"
 # do
-for learning_beta in $learning_betas
+for num_repeats in 1 2 3 4 5
 do
-
-    declare -A dict
-    dict["joint"]="True False False"
-    # dict["only_fairness"]="False True False"
-    dict["multi_head"]="True True True"
-    dict["split"]="True True False"
-
-    conda_loc="/storage1/fs1/wyeoh/Active/ashwin/.conda/envs/fen/bin/python"
-
-    for key in "${!dict[@]}"
+    for learning_beta in $learning_betas
     do
-        echo $env_name $key $learning_beta
-        # echo ${dict[$key]}
-        learn_utility=$(echo ${dict[$key]} | cut -d' ' -f1)
-        split=$(echo ${dict[$key]} | cut -d' ' -f2)
-        multi_head=$(echo ${dict[$key]} | cut -d' ' -f3)
 
-        echo "${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
+        declare -A dict
+        dict["joint"]="True False False"
+        # dict["only_fairness"]="False True False"
+        dict["multi_head"]="True True True"
+        dict["split"]="True True False"
 
-        bsub -n 1 \
-        -q general \
-        -m general \
-        -G compute-wyeoh \
-        -J ${env_name}_{$key}_{$learning_beta} \
-        -M 4GB \
-        -N \
-        -u ashwinkumar@wustl.edu \
-        -o /storage1/fs1/wyeoh/Active/ashwin/job_output/FEN/${env_name}_beta${learning_beta}_${learn_utility}_${split}_${multi_head}.%J.txt \
-        -R 'rusage[mem=4GB] span[hosts=1]' \
-        -g /ashwinkumar/limit100 \
-        -a "docker(rapidsai/rapidsai:21.10-cuda11.0-runtime-ubuntu20.04-py3.8)" \
-        "cd ~/Git/FEN/NewTorch/ && ${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
+        conda_loc="/storage1/fs1/wyeoh/Active/ashwin/.conda/envs/fen/bin/python"
+
+        for key in "${!dict[@]}"
+        do
+            echo $env_name $key $learning_beta
+            # echo ${dict[$key]}
+            learn_utility=$(echo ${dict[$key]} | cut -d' ' -f1)
+            split=$(echo ${dict[$key]} | cut -d' ' -f2)
+            multi_head=$(echo ${dict[$key]} | cut -d' ' -f3)
+
+            echo "${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
+            run_name="${env_name}_${key}_${learning_beta}_${num_repeats}"
+            bsub -n 1 \
+            -q general \
+            -m general \
+            -G compute-wyeoh \
+            -J run_name \
+            -M 4GB \
+            -N \
+            -u ashwinkumar@wustl.edu \
+            -o /storage1/fs1/wyeoh/Active/ashwin/job_output/FEN/${run_name}.%J.txt \
+            -R 'rusage[mem=4GB] span[hosts=1]' \
+            -g /ashwinkumar/limit100 \
+            -a "docker(rapidsai/rapidsai:21.10-cuda11.0-runtime-ubuntu20.04-py3.8)" \
+            "cd /storage1/fs1/wyeoh/Active/ashwin/Git/FEN/NewTorch/ && ${conda_loc} ${func} --learning_beta ${learning_beta} --learn_utility ${learn_utility} --split ${split} --multi_head ${multi_head}"
+        done
     done
 done
 # bjgroup -s /ashwinkumar - To check available groups
