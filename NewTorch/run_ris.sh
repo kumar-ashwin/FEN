@@ -20,7 +20,7 @@ fi
 # learn_utility=${learn_utility} \
 # multi_head=${multi_head} \
 
-func="run_batch_training.py "
+func="run_training_ris.py "
 params_dict="\
 env_name=${env_name} \
 env_name_mod=${env_name_mod} \

@@ -120,28 +120,33 @@ if args.training:
 	# If the file doesn't exist, create it and write the header
 	# Create the directory if it doesn't exist
 	results_file = f"Results/{args.env_name+args.env_name_mod}results.csv"
+	# Also save a copy of the results file in the save_path
+	results_file2 = f"{args.save_path}/results.csv"
 	create=False
 	if not os.path.exists("Results"):
 		os.makedirs("Results")
 	file_exists = os.path.exists(results_file)
 
+	all_fields = {}
+	for key, value in mean_val_metrics.items():
+		all_fields[key] = value
+	for arg in vars(args):
+		all_fields[arg] = getattr(args, arg)
+	for arg in vars(train_args):
+		all_fields[arg] = getattr(train_args, arg)
+	all_fields["observation_space"] = M.observation_space
+	
 	with open(results_file, "a", newline="") as f:	
 		# Add one row to the csv file
-		all_fields = {}
-		for key, value in mean_val_metrics.items():
-			all_fields[key] = value
-		for arg in vars(args):
-			all_fields[arg] = getattr(args, arg)
-		for arg in vars(train_args):
-			all_fields[arg] = getattr(train_args, arg)
-		all_fields["observation_space"] = M.observation_space
-		
 		writer = csv.DictWriter(f, fieldnames=all_fields.keys())
 		if not file_exists:
 			writer.writeheader()
 		writer.writerow(all_fields)
-
-# Write a file to indicate that the training is done
-if args.training:
-	with open(f"{args.save_path}/training_done.txt", "w") as f:
-		f.write("Training Done")
+	
+	# Save a copy of the results file in the save_path
+	with open(results_file2, "a", newline="") as f:	
+		# Add one row to the csv file
+		writer = csv.DictWriter(f, fieldnames=all_fields.keys())
+		if not file_exists:
+			writer.writeheader()
+		writer.writerow(all_fields)
