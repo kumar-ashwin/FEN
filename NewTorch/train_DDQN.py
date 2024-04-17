@@ -144,9 +144,10 @@ if args.training:
 		writer.writerow(all_fields)
 	
 	# Save a copy of the results file in the save_path
+	file_exists2 = os.path.exists(results_file2)
 	with open(results_file2, "a", newline="") as f:	
 		# Add one row to the csv file
 		writer = csv.DictWriter(f, fieldnames=all_fields.keys())
-		if not file_exists:
+		if not file_exists2:
 			writer.writeheader()
 		writer.writerow(all_fields)

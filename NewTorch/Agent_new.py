@@ -314,13 +314,16 @@ class SplitDoubleDQNAgent(Agent):
 		
 		self.env.reset()
 		experiences = self.replay_buffer.sample(num_samples)
-		loss_logs['util'] = self.utilAgent.update_from_experience(experiences)
-		fair_experiences = []
-		for experience in experiences:
-			f_exp = copy.deepcopy(experience)
-			f_exp['rewards'] = f_exp['f_rewards']
-			fair_experiences.append(f_exp)
-		loss_logs['fair'] = self.fairAgent.update_from_experience(fair_experiences)
+
+		if self.learn_utility:
+			loss_logs['util'] = self.utilAgent.update_from_experience(experiences)
+		if self.learn_fairness:
+			fair_experiences = []
+			for experience in experiences:
+				f_exp = copy.deepcopy(experience)
+				f_exp['rewards'] = f_exp['f_rewards']
+				fair_experiences.append(f_exp)
+			loss_logs['fair'] = self.fairAgent.update_from_experience(fair_experiences)
 
 		return loss_logs
 
