@@ -9,7 +9,6 @@
         "best_model_update_freq": 50,
         "model_save_freq": 200,
         "hidden_size": 20,
-        "tag": "200step_1000ep",
         "warm_start": 5
     },
     "Job":

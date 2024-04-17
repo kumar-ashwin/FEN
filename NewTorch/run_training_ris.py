@@ -33,7 +33,10 @@ with open(f"hyperparams.json") as f:
         if key not in params:
             params[key] = value
         else:
-            print("Key ", key, " already exists in args. Ignoring value from hyperparams.json")
+            if params[key] == None or params[key] == "":
+                params[key] = value
+            else:
+                print("Key ", key, " already exists in args. Ignoring value from hyperparams.json")
 
 
 if not params["learn_utility"]:
@@ -42,7 +45,13 @@ if not params["learn_utility"]:
         exit()
     if params["u_model_loc"] == "":
         print("Must provide u_model_loc when learn_utility=False")
-        exit()
+        print("Looking for default model in the Joint directory")
+        pth = "logs/"+params["env_name"]+params["env_name_mod"]+"/"+params["tag"]
+        model_loc = pth+f"/split_diff/Joint/0.0/1/models/best/best_model.ckpt"
+        if not os.path.exists(model_loc):
+            print("Model not found in ", model_loc)
+            exit()
+        params["u_model_loc"] = model_loc
     print("Loading model from ", params["u_model_loc"])
 else:
     if params["u_model_loc"] != "":
