@@ -47,6 +47,8 @@ if not params["learn_utility"]:
         print("Must provide u_model_loc when learn_utility=False")
         print("Looking for default model in the Joint directory")
         pth = "logs/"+params["env_name"]+params["env_name_mod"]+"/"+params["tag"]
+        if params['simple_obs']==True:
+            pth = pth+"/Simple"
         model_loc = pth+f"/split_diff/Joint/0.0/1/models/best/best_model.ckpt"
         if not os.path.exists(model_loc):
             print("Model not found in ", model_loc)
